@@ -1,6 +1,6 @@
 # Does Speed Matter in E-Commerce?
 
-![](screenshots/maps_color/2019-07-25-00_28_44-Tableau-Question_1-Path-Screenshot.png)
+![](screenshots/maps_color/2019-07-24-23_17_14-Tableau-Question 1-Path-Continental-US.png)
 
 
 The following are support files for 2019 2nd Summer Semester DSBA 6211 Group Project. The project followed the QVC Analytics challenge, analyizing QVC sales data.
