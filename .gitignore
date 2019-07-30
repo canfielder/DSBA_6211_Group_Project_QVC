@@ -1,0 +1,11 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# Folders
+_R/data_R/
+_Tableau/data_Tableau/
+
+# Files
+README.html

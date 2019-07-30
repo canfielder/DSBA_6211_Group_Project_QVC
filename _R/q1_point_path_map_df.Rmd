@@ -1,0 +1,227 @@
+---
+title: "Question 1 - Point Path Map"
+author: "Evan Canfield"
+date: "7/24/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+# Library 
+```{r library}
+if(!require(pacman)){install.packages("pacman")}
+library(pacman)
+
+p_load(  
+  caTools,
+  Hmisc, 
+  geosphere,
+  lubridate,
+  noncensus,
+  sf,
+  skimr,
+  stringr,
+  tidycensus,
+  tidyverse,
+  tigris
+)
+```
+
+# Import Data Frame
+```{r }
+qvc_path <- readRDS(file = "./data/output/q1_tableau/qvc_data_q1.rds")
+```
+
+```{r}
+glimpse(qvc_path)
+summary(qvc_path)
+```
+
+# Check if Party ID is associated with a single location
+```{r}
+qvc_path%>%
+  select(Party_Id, zip_dest) %>% 
+  group_by(Party_Id) %>%
+  mutate(n = n_unique(zip_dest)) %>% 
+  arrange(desc(n)) %>% 
+  distinct()
+```
+
+The Party_Id / Zip Code connection is not unique. Therefore Party_Id / Warehouse Number cannot be used as a unique path. Zip_dest must be used as the unique destination identifier 
+# Drop Unnecessary Variables
+```{r}
+qvc_path_1 <- qvc_path %>% 
+  select(
+      - fips_dest
+    , -Fulfillment_Days
+    , -Distance
+  ) %>% 
+  mutate(path_code = paste(Party_Id, zip_dest,Source_Ship_Warehouse_Nbr, sep = "_"),
+         destination_code = paste(Party_Id, zip_dest, sep = "_")
+         ) %>% 
+  rename(origin_code = Source_Ship_Warehouse_Nbr) %>% 
+  select(Sales_Order_Nbr:Merchandise_Dept_Desc,
+         origin_code:destination_code,
+         -zip_distctr
+         )
+
+glimpse(qvc_path_1)
+```
+
+```{r}
+qvc_path_2 <- qvc_path_1 %>% 
+    rename(
+      city_origin = city_distctr,
+      state_origin = state_distctr,
+      lat_origin = lat_distctr,
+      lon_origin = lon_distctr
+    )
+  
+glimpse(qvc_path_2)  
+```
+
+# Create a Unique Row Identifier
+```{r}
+qvc_path_3 <- qvc_path_2 %>% 
+  mutate(id = rownames(qvc_path_2))
+
+skim(qvc_path_3)
+```
+
+
+# Break Data Frame into Origin and Destination Data Frame
+```{r}
+qvc_path_org_1 <- qvc_path_3
+
+qvc_path_dest_1 <- qvc_path_3
+
+skim(qvc_path_3)
+```
+
+# Origin Dataset
+```{r}
+
+glimpse(qvc_path_org_1)
+
+qvc_path_org_2 <- qvc_path_org_1 %>% 
+  select(
+         id,
+         Sales_Order_Nbr, 
+         city_origin:lon_origin,
+         path_code,
+         origin_code,
+         destination_code,
+         Total_Line_Amt,
+         state_dest, 
+         zip_dest
+         ) %>% 
+  rename(
+    city = city_origin,
+    state = state_origin,
+    lat = lat_origin,
+    lon = lon_origin
+  ) %>% 
+  mutate(origin_destination = "origin")
+
+glimpse(qvc_path_org_2)
+```
+
+# Destination Dataset
+```{r}
+qvc_path_dest_2 <- qvc_path_dest_1 %>% 
+  select(
+         id,
+         Sales_Order_Nbr, 
+         city_dest:lon_dest,
+         path_code,
+         origin_code,
+         destination_code,
+         Total_Line_Amt
+         ) %>% 
+    rename(
+    city = city_dest,
+    state = state_dest,
+    lat = lat_dest,
+    lon = lon_dest
+  ) %>% 
+  mutate(state_dest = state,
+    origin_destination = "destination")
+
+# Reorder to Match
+qvc_path_dest_3 <- qvc_path_dest_2 %>% 
+  select(id:state,
+         lat:state_dest,
+         zip_dest,
+         origin_destination)
+
+glimpse(qvc_path_dest_3)
+```
+
+# Bind Origin and Destination Data Frames
+```{r}
+qvc_path_comb <- rbind(qvc_path_dest_2, qvc_path_org_2)
+
+qvc_path_comb <- qvc_path_comb %>% 
+  arrange(id, desc(origin_destination))
+
+# Reorder
+qvc_path_comb <- qvc_path_comb %>% 
+  select(id:destination_code  ,
+         state_dest:origin_destination,
+         Total_Line_Amt,
+         -id)
+
+glimpse(qvc_path_comb)
+```
+
+# State Centroid Lat/Lon
+```{r}
+
+zip_codes
+
+qvc_path_comb
+
+zip_codes_state_centroid <- zip_codes %>% 
+  group_by(state) %>% 
+  summarise(lat_center = mean(latitude),
+            lon_center = mean(longitude))
+```
+
+# Add Centroid Lat/Lon Data
+```{r}
+zip_codes_state_centroid
+
+qvc_path_comb_1 <- qvc_path_comb %>% 
+  left_join(zip_codes_state_centroid
+            , by = "state")
+
+glimpse(qvc_path_comb_1)
+
+head(qvc_path_comb_1)
+```
+
+# Replace Lat / Lon For Destination With State Centroid
+```{r}
+qvc_path_state_centroid <- qvc_path_comb_1 %>% 
+  mutate(lat = if_else(origin_destination == "destination", lat_center, lat),
+         lon = if_else(origin_destination == "destination", lon_center, lon))
+
+glimpse(qvc_path_state_centroid)
+```
+
+
+# Export
+```{r}
+write.csv(x = qvc_path_comb_1
+          , "./data/output/q1_tableau/qvc_path_points_all.csv"
+          , row.names = FALSE)
+
+write.csv(x = qvc_path_state_centroid
+          , "./data/output/q1_tableau/qvc_path_points_centroid.csv"
+          , row.names = FALSE)
+```
+

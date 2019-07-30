@@ -1,0 +1,458 @@
+---
+title: "Group Project Report"
+author: "Evan Canfield"
+date: "7/28/2019"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# R Library Packages
+
+Data processing was primarily done through R. The following libraries were used to process the provided data.
+
+```{r librar, warning=FALSE, message=FALSE}
+if(!require(pacman)){install.packages("pacman")}
+library(pacman)
+
+p_load(  
+  arules,
+  arulesViz,
+  dplyr,
+  tidyr,
+  geosphere,
+  lubridate,
+  noncensus,
+  readxl,
+  tidycensus,
+  stringr
+)
+```
+
+
+# Data Import
+
+The following were the provided files for Option 2 of the DSBA 6211 Group Project: 
+
+* QVC Data 1.xlsx
+* QVC Data 2.xlsx
+* QVC Data 3.xlsx
+* QVCdist_ctr.xlsx
+* QVCorderstatustype.xlsx
+* QVC Data Dictionary.xlsx
+
+Before upload and processing in R an error was noticed. The rows listed below had blank value inserted at column Size_DESC. The remaining data in that row was then shifted over by one column. This data was readjusted manually.
+
+* QVC Data 1: 220464 (#Sales_Order_Nbr: 649344509406)
+* QVC Data 1: 259651 (#Sales_Order_Nbr: 449320937874)
+* QVC Data 2: 111684 (#Sales_Order_Nbr: 649288839226)
+* QVC Data 2: 462659 (#Sales_Order_Nbr: 849460177698)
+* QVC Data 3: 271093 (#Sales_Order_Nbr: 149349466481)
+* QVC Data 3: 303069 (#Sales_Order_Nbr: 649356909726)
+
+During upload all blank values were treated as NA.
+
+
+```{r data import, cache=TRUE,warning=FALSE}
+qvc_data_1 <- read_xlsx("./data/QVC Data 1.xlsx", na = c("NA", ""))
+
+qvc_data_2 <- read_xlsx("./data/QVC Data 2.xlsx", na = c("NA", ""))
+
+qvc_data_3 <- read_xlsx("./data/QVC Data 3.xlsx", na = c("NA", ""))
+
+qvc_distctr <- read_xlsx("./data/QVCdist_ctr.xlsx", na = c("NA", "")) 
+
+qvc_orderstatustype <- read_xlsx("./data/QVCorderstatustype.xlsx", na = c("NA", "")) 
+```
+
+State population data was provided by 2018 National and State Population Estimates from the US Census Bureau. [https://www.census.gov/newsroom/press-kits/2018/pop-estimates-national-state.html](https://www.census.gov/newsroom/press-kits/2018/pop-estimates-national-state.html). The data set form was then processed so that only the state code, state (and state equivalents), and 2018 population estimate were in the file used in this analysis.
+
+```{r}
+us_census_2018 <- read.csv("./data/us_census_population_change_2018_reformatted.csv")
+```
+
+The **zip_codes** data set from the **noncensus** package was used to provide city, state, latitude, and longitude data for the QVC warehouse and the package destination based on the provided zip codes. Additionally, the **zip_codes** data set provided the Federal Information Processing Standard (FIPS) code for each destination zip code. FIPS codes are unique identifiers for US counties (and county equivalents).   
+
+```{r loading zip_codes dateset}
+data("zip_codes")
+```
+
+The **fips_codes** data set from the **tidycensus** package was used to provide state information in relation to each unique FIPS code.
+```{r}
+data("fips_codes")
+```
+
+# Processing The Data
+## Creating The Raw Data File
+Once uploaded the QVC sales data was combined into a single data frame. 
+```{r bind qvc data files, cache=TRUE, warning=FALSE}
+ qvc_data <- qvc_data_1 %>% 
+   bind_rows(qvc_data_2) %>%  #Bind QVC Data 1 to QVC Data 2
+   bind_rows(qvc_data_3)      #Bind QVC Data 3 
+```
+
+Note, that for ease moving forward, the **#Sales_Order_Number** variable was renamed to **Sales_Order_Number**. Furthermore, **SHIP_TO-ZIP** was renamed **zip_dest** to be consistent with data that will be added to the data frame during a later step.
+```{r rename Sales_Order_Number}
+qvc_data <- qvc_data %>% 
+  rename(Sales_Order_Nbr = '#Sales_Order_Nbr',
+         zip_dest = SHIP_TO_ZIP)
+```
+
+After studying the project questions and the provided data, the following variables were determined to not be relevant to the analysis were then dropped from the data frame. Note that the information from **SHIP_TO_STATE** is important to the analyzing the data, but will be repopulated through a different data source during a later step in the process.
+```{r drop variables}
+drop_variables = c(   "Sales_Order_Line_Nbr", "Order_Type_Cd", "Shipping_Priority_Ind", "Line_Status_Dt", "Skn_Id", "Sku_Id", "Color_Desc","Size_Desc",
+                      "Assigned_Dc_Id", "Cancelled_Qty", "Merchandise_Div_Desc", "Carrier_Used_Tracking_Id", "Shipment_Status_Dt", "Pickup_Dt",
+                      "Scheduled_Delivery_Dt", "Package_Scan_Dttm", "Package_Cnt", "SHIP_TO_CITY", "SHIP_TO_STATE")
+qvc_data <- qvc_data %>% 
+  select(-drop_variables)
+```
+
+## Modifying the Data 
+As the provided data was in *.XLSX* form not all variables had the correct data types after upload. The following modifications were necessary.
+
+### Changing Data Types
+The variable **Merchandise_Dept_Desc** was imported as a character, but functions as a factor. **Sales_Order_Nbr **,  **Party_Id **,  **Product_Id **, and  **Package_Id ** are all identification codes and although are comprised a numbers, these variables function as a character string.
+```{r mutate data types}
+qvc_data <- qvc_data %>% 
+  mutate(
+    Merchandise_Dept_Desc = factor(Merchandise_Dept_Desc),
+    Sales_Order_Nbr = as.character(Sales_Order_Nbr),
+    Party_Id  = as.character(Party_Id),
+    Product_Id = as.character(Product_Id),
+    Package_Id = as.character(Package_Id)
+    )
+```
+
+### Leading Zeros
+In several instances the leading zeros for data employing unique numerical codes were dropped during upload. The variables zip_dest and Source_Ship_Warehouse_Nbr are both numeric identifiers, zip_dest five digit, and Source_Ship_Warehouse_Nbr four digit. During uploaded from the *.XLSX* file, these variables were considered numeric and any leading zeros in the code were dropped. To properly use these variables the leading zeros need to be reinserted, and the variables converted to character type, in both the QVC Data and QVC Distribution Center data sets. Additionally, leading zeros for FIPS code from the **zip_codes** were also dropped, and therefore needed to be reinserted.
+```{r Leading Zeros }
+# Source_Ship_Warehouse_Nbr - QVC Data
+qvc_data$Source_Ship_Warehouse_Nbr  <- str_pad(string = qvc_data$Source_Ship_Warehouse_Nbr, 
+                                width = 4, 
+                                side = "left", 
+                                pad = "0")
+
+# Source_Ship_Warehouse_Nbr - QVC Disttribution Center
+qvc_distctr$Source_Ship_Warehouse_Nbr  <- str_pad(string = qvc_distctr$Source_Ship_Warehouse_Nbr, 
+                                width = 4, 
+                                side = "left", 
+                                pad = "0")
+
+
+# zip_dest
+qvc_data$zip_dest  <- str_pad(string = qvc_data$zip_dest, 
+                                width = 5, 
+                                side = "left", 
+                                pad = "0")
+
+# FIPS
+zip_codes$fips  <- str_pad(string = zip_codes$fips, 
+                                width = 5, 
+                                side = "left", 
+                                pad = "0")
+
+```
+
+## Connecting Data Sets
+The data set was then combined with two other data sets, the QVC Distribution Center data and the **zip_codes** data set. Joining with the  QVC Distribution Center data provided further distribution center data for each sales item. 
+```{r join distribution center data set}
+qvc_data <- qvc_data %>% 
+  left_join(
+    select(qvc_distctr,Source_Ship_Warehouse_Nbr,POSTL_CD),
+            by = "Source_Ship_Warehouse_Nbr"
+            ) %>% 
+  rename(zip_distctr = POSTL_CD)
+```
+
+The **zip_codes** data set was joined to provide city, state, latitude, and longitude data for the QVC warehouse and the package destination based on the provided zip codes, as well as FIPS codes based on the destination zip codes. Variables were renamed to provide a clean and consistent naming convention.
+```{r join zip_codes}
+qvc_data <- qvc_data %>%
+  
+  #Join zip_codes to Distribution Center zip code
+  left_join(
+    select(zip_codes, zip:longitude),
+    by = c("zip_distctr" = "zip")
+  ) %>% 
+  
+  #Rename Distribution Center Variables
+  rename(
+    city_distctr = city,
+    state_distctr = state,
+    lat_distctr = latitude,
+    lon_distctr = longitude
+  ) %>% 
+  
+  #Join zip_codes to Desitnation zip code
+  left_join(zip_codes
+            , by = c("zip_dest" = "zip")) %>% 
+  
+  #Rename Destination Columns
+  rename(
+    city_dest = city,
+    state_dest = state,
+    lat_dest = latitude,
+    lon_dest = longitude,
+    fips_dest = fips
+  ) 
+```
+
+The data set variables were then reordered to a more logical arrangement. 
+```{r reorder}
+qvc_data <- qvc_data %>% 
+  select(Sales_Order_Nbr, Package_Id,Party_Id:Product_Id, Ordered_Qty, Shipped_Qty, 
+         Actual_Total_Package_Qty, Merchandise_Dept_Desc, Order_Dt,
+         Shipped_Dt, Rescheduled_Delivery_Dt, Delivery_Confirmation_Dt, Source_Ship_Warehouse_Nbr,
+         city_distctr, state_distctr, zip_distctr, lat_distctr, lon_distctr, zip_distctr,
+         city_dest, state_dest, lat_dest, lon_dest, zip_dest, fips_dest
+         )
+```
+
+
+# Developing New Variables
+
+Several new variables were developed for use in analyzing the provided QVC data. 
+
+## Rescheduled
+The **Rescheduled_Delivery_Dt** variable has a high missing data rate, with 40% of the data observations recorded as NA. The description of this variable indicates that a value would only be recorded if the package was rescheduled, so a shipment that was not rescheduled would be indicated by NA. It was assumed that all of the NA values were shipments that were not rescheduled. Using this assumption, a new binary variable was developed, **Rescheduled**. The binary indicates whether a shipment was rescheduled (1) or was not (0). The **Rescheduled_Delivery_Dt** variable was then dropped. 
+```{r rescheduled}
+qvc_data <- qvc_data %>% 
+  mutate(Rescheduled = if_else(is.na(Rescheduled_Delivery_Dt), 0, 1)) %>% 
+  select(-Rescheduled_Delivery_Dt)
+```
+
+## Fulfillment_Days
+The variable **Fulfillment_Days** is the length of time, in days, between **Order_Dt** and **Delivery_Confirmation_Dt** . The span between **Shipped_Dt** and **Delivery_Confirmation_Dt** was initially considered as well, but after inspection, quality issues regarding the **Shipped_Dt** values lead to the decision not to use **Shipped_Dt**. The span of time between dates was calculated, in part, using the **lubridate** package.
+```{r fullfilment time}
+qvc_data <- qvc_data %>% 
+  mutate(Fulfillment_Days = as.double(difftime(time1 = ymd(Delivery_Confirmation_Dt)
+                                               , time2 = ymd(Order_Dt)
+                                               , units = "days"))
+        )
+```
+
+## Distance
+The distance between distribution center and shipping destination was calculated for each observation. The location of the distribution center and shipping destination was approximated as the center latitude and longitude, as provide by the **zip_codes** data set,  of the provided zip codes of the distribution center and shipping destination. The **geosphere** package was used to calculate the distance, using the latitude and longitude of the distribution center and shipping destination as the starting and end point, and using the Haversine method to account for the curvature of the earth. The function distm() returns the distance in meters, so a conversion factor of 0.000621371 miles/meter was also used in order to express the distance in miles.
+
+```{r distance, cache= TRUE}
+qvc_data <- qvc_data %>% 
+  rowwise() %>% 
+  mutate(Distance = round((distm(x = c(lon_distctr, lat_distctr)
+                          , y = c(lon_dest, lat_dest)
+                          , fun = distHaversine) * 0.000621371), 0)
+  ) %>% 
+  ungroup()
+```
+
+# Further Data Cleaning
+There are currently missing values in the following variables:
+
+* **Shipped_Dt**
+* **Delivery_Confirmation_Dt**
+* **lat_distctr**
+* **lon_distctr**
+* **lat_dest**
+* **lon_dest**
+* **Fulfillment_Days**
+* **Distance**
+
+None of above variables are have a rate of missing data high enough to imply poor quality of the data, and therefore require dropping the variable. Therefore, the missing values must be imputed or the associated observations dropped. 
+
+**Delivery_Confirmation_Dt** and **Fulfillment_Days** have the largest number of missing values. As **Fulfillment_Days** is a calculated variable based on **Delivery_Confirmation_Dt**, all of the missing values in the former are due to the missing values in the latter. **Delivery_Confirmation_Dt** has a missing value rate of 4.6%. This missing rate is considered acceptable with such a large data set.These missing values are dropped.
+
+```{r drop delivery}
+qvc_data <- qvc_data %>% 
+  drop_na(Delivery_Confirmation_Dt)
+```
+
+Dropping the **Delivery_Confirmation_Dt** also drops the missing **Shipped_Dt** values. The only renaming missing values are the missing latitude and longitude values, as well as the corresponding missing distance values, which is a calculated value based on latitude and longitude. The missing data is due to the **zip_codes** data set being based on zip codes from the 2010 census. This was the most current data documenting all US zip codes, with corresponding geographical data, that could be found. New zip codes have been established since 2010. Distribution centers and shipping destinations from these zip codes are what is causing the missing values. As the missing **Distance** values are only 0.78% of the data set, these missing values are dropped.
+
+```{r drop distance}
+qvc_data <- qvc_data %>% 
+  drop_na(Distance)
+```
+
+Inspection of the data shows that there are some observations which have a negative **Fulfillment_Days** value. This would me the **Delivery_Confirmation_Dt** pre-dates the **Order_Dt**. This is considered a quality issue with the data. The number of observations with **Fulfillment_Days** less that 1 day constitutes 0.05% of the data set. All observations with a **Fulfillment_Days** of less than one are dropped. 
+
+**Note**: All but one instance of a **Fulfillment_Days** value of less than one originated at Distribution Center 0540. There may be a systematic problem related to this location and should be investigated. 
+
+```{r filter fulfillment time}
+qvc_data <- qvc_data %>% 
+  filter(Fulfillment_Days >= 1)
+```
+
+With the above data cleaning steps completed, the final data set to be used in the analyses to answer the project questions is complete. 
+
+# Additional Data
+## Shape File
+For Question 1, one of the visuals created in Tableau was a county choropleth based on total sales in each county within California, Texas, and Florida. While Tableau is able to plot state based data by default, additional information is required to plot county level data. The county level shape files were provided by the US Census Bureau through the 2018 Tiger/Lines Shape File [https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.2018.html] (https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.2018.html).
+
+## State Data Frame
+For additional contextual information, a data set of information on the US states was developed based on available R data sets, with some modification. 
+```{r state data frame}
+# Develop data frame of state name, abbreviations, regions, and dvisions
+state_df <- data.frame(State = state.name
+                       , Abb = state.abb
+                       , Region = state.region
+           )
+
+#Re-define Regions from 4 to 5
+
+Southwest <- c("Arizona", "New Mexico", "Texas", "Oklahoma")
+
+state_df <- state_df %>% 
+  mutate(Region = as.character(Region), 
+         Region = if_else(Region == "North Central", "Midwest", Region),
+         Region = if_else(Region == "South", "Southeast", Region), 
+         Region = if_else(State %in% Southwest, "Southwest", Region))
+
+# Washington DC
+state_df_DC <- data.frame( State = "Washington, D.C.", Abb = "DC", Region = "Southeast")
+
+# Puerto Rico
+state_df_PR <- data.frame( State = "Puerto Rico", Abb = "PR", Region = "Southeast")
+
+#Bind Washington DC Dataframe into Main State DF
+state_df <- rbind(state_df, state_df_DC, state_df_PR)
+```
+
+
+# Question 1
+*Does the current distribution network maximize customer penetration (spend)? If not, what should QVC do to increase customer penetration with the current distribution network?*
+
+Not all of the variables included in the main data set are required for Question 1. Therefore, the unnecessary variables are dropped. The following data set was used for all state based Tableau visualizations.
+
+```{r q1 data frame state}
+qvc_data_Q1_state <- qvc_data %>% 
+  select(Sales_Order_Nbr,
+         Party_Id,
+         Total_Line_Amt,
+         Merchandise_Dept_Desc,
+         Source_Ship_Warehouse_Nbr:Distance,
+         -Rescheduled )
+```
+
+
+## County Level Visualizations
+For county level visualizations, the calculation of total sales by FIPS code was necessary. Currently the QVC data set only has FIPS code information for areas where a purchase was shipped to (**fips_dest**). If a county visualization was done only using these FIPS values, any county where no purchases were made would not be present in the data, and any subsequent visualization would should a blank space on the map. 
+
+In order to avoid a map with blank spaces, a full list of US FIPS codes is right-joined to the QVC sales data set, ensuring all FIPS code are included in the resultant data set. All FIPS codes in the full list of FIPS codes which do not have a corresponding FIPS code in the sales data set will result in NAs. All NAs are then replaced by 0, indicating no sales were made in those FIPS regions.
+
+The state of each FIPS code is included in the full FIPS list for to act as a filter while creating visuals in Tableau
+```{r q1 data frame county}
+# Create List of Every5-digit FIPS code
+fips_codes_full <- fips_codes %>% 
+  mutate(fips_code = paste(state_code, county_code, sep = "")) %>% 
+  distinct() %>% 
+  select(fips_code, state)
+
+# Create Data Frame of QVC Sales and FIPS Code
+qvc_sales_by_fips <- qvc_data %>% 
+  select(Total_Line_Amt, fips_dest)
+
+# Join Total FIPS List to Sales Data and Replace NAs with zero
+qvc_data_Q1_FIPS <- qvc_sales_by_fips %>% 
+  right_join(fips_codes_full, 
+            by = c("fips_dest" = "fips_code")
+  ) %>% 
+  mutate(Total_Line_Amt = coalesce(Total_Line_Amt, 0))
+```
+
+## Sales / Population Linear Regression
+In analyzing the relationship between sales within a state and the state's population, a linear regression analysis was performed. A new data set focused on sales by state was necessary to perform the regression. The data set used to perform the regression needed to include each state's population and total sales.
+
+First, it was required to join the US Census data set to the state information data set. This was to ensure the census data had the correct information to successfully be joined to the sales data. Additionally, the population variable was renamed to **Population_2018** for easier comprehension. 
+
+```{r census state join, warning=FALSE}
+us_census_2018 <- us_census_2018 %>% 
+  left_join(select(state_df, State, Abb)
+            , by = c("NAME" = "State")
+) %>% 
+  rename(Population_2018 = POPESTIMATE2018)
+```
+
+With the census data prepared, it was then joined to the QVC sales data aggregated by state.
+```{r sale by state, warning=FALSE}
+qvc_data_stat_pop <- qvc_data %>% 
+  # Calculate Sales By State
+  group_by(state_dest) %>% 
+  summarise(Sales_Per_State = sum(Total_Line_Amt)
+            ) %>% 
+  
+  #Join State Population Data
+left_join(us_census_2018
+          , by = c("state_dest" = "Abb")) %>% 
+  select(-STATE)
+```
+
+Linear regression was then performed with the new data, comparing **Sales_Per_State** to **Population_2018**.
+```{r}
+lm(formula = Sales_Per_State  ~ Population_2018
+    , data = qvc_data_stat_pop)
+```
+
+# Question 2
+*Are there specific products or product categories that should be located in specific distribution centers?*
+
+Analysis of product categories was performed using the final, complete data set, **qvc_data**, in Tableau.
+
+For specific product analysis, Association Rule mining was performed. First, a new data frame was developed listing only **Sales_Order_Nbr** and **Product_Id **.
+```{r trim data frame}
+qvc_data_am <- qvc_data %>% 
+  select(Sales_Order_Nbr,
+         Product_Id)
+```
+
+In order to perform Association Mining with the **Arules** package, the input data needs to be in the form of a transactions object, not a standard data frame. To convert the data frame to a transaction object, the data frame is exported as a *.csv* file and then re-imported, using the read.transactions function.
+
+```{r export / import, cache=TRUE}
+write.csv(x = qvc_data_am
+        , file = "./data/output/q2_association_mining/qvc_data_sales-and-prod.csv"
+        , row.names = FALSE)
+
+qvc_sales_trans <- read.transactions(file = "./data/output/q2_association_mining/qvc_data_sales-and-prod.csv"
+                  , format = "single"
+                  , cols = c(1,2)
+                  , sep = ","
+                  , rm.duplicates = TRUE
+                  , skip = 1)
+```
+
+With the data now in a transactions object form, frequent sets analysis and rules mining analysis are performed.
+
+```{r frequent sets}
+# Frequent Sets
+frqsets.qvc <- apriori(data = qvc_sales_trans
+                       , parameter=list(minlen=2
+                                        , supp=1e-5
+                                        , conf=0.5
+                                        , target="frequent itemsets")
+                       , control = list(verbose = FALSE))
+```
+
+```{r rule mining}
+# Rules Mining
+rules.qvc <- apriori(data = qvc_sales_trans
+                     , control = list(verbose=FALSE)
+                     , parameter = list(minlen=2
+                                        , supp = 1e-7
+                                        , conf=0.5)) 
+# Determine and Prune Redundant Rules
+redundant <- which (colSums(is.subset(rules.qvc, rules.qvc)) > 1)
+
+rules.qvc.pruned <- rules.qvc[-redundant]
+```
+
+# Question 3
+*Do customers that receive their product sooner purchase more than customers with longer delivery times?*
+
+
+
+```{r}
+
+```
+

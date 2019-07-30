@@ -1,0 +1,122 @@
+---
+title: "Question 3 - Exploratory"
+author: "Evan Canfield"
+date: "7/26/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Library Calls
+
+The following libraries are used to develop the data frames for Question 1 of the Group Project
+
+```{r library, warning=FALSE, message=FALSE}
+if(!require(pacman)){install.packages("pacman")}
+library(pacman)
+
+p_load(  
+  caTools,
+  Hmisc, 
+  geosphere,
+  lubridate,
+  randomForest,
+  skimr,
+  stringr,
+  tidyverse
+)
+```
+
+# Data Import
+```{r cache=TRUE}
+#Processed QVC Data Frame
+qvc_data_all <- readRDS(file = "./data/output/Group Project Dataset/qvc_data_compiled_new_variables.rds")
+```
+
+
+```{r}
+glimpse(qvc_data_all)
+```
+
+```{r}
+#All
+qvc_customer_order_count_all <- qvc_data_all %>%
+  distinct() %>% 
+  select(Party_Id, Sales_Order_Nbr) %>% 
+  group_by(Party_Id) %>%
+  count() %>% 
+  arrange(-n)
+```
+
+# All
+```{r}
+qvc_customer_repeat_all <- qvc_customer_order_count_all %>% 
+  mutate(Repeat = if_else(n > 1, 1, 0))
+
+glimpse(qvc_customer_repeat_all)
+
+summary(qvc_customer_repeat_all)
+```
+
+# Customer Based Data Set
+```{r}
+glimpse(qvc_data_all)
+
+qvc_data_customer <- qvc_data_all %>% 
+  group_by(Party_Id) %>% 
+  summarise(
+    Total_Sales_Avg = mean(Total_Line_Amt),
+    Fulfillment_Days_Avg = mean(Fulfillment_Days),
+    Distance_Avg = mean(Distance)
+  ) %>% 
+  left_join(qvc_customer_repeat_all
+            , by = "Party_Id")
+
+glimpse(qvc_data_customer)
+```
+
+```{r}
+model.glmlbaseline <- glm(formula = Repeat ~ . -Party_Id - n
+    , family=binomial(link='logit')
+    ,data=qvc_data_customer)
+
+summary(model.glmlbaseline)
+```
+
+```{r}
+ggplot(data = qvc_data_customer
+       , mapping = aes(Fulfillment_Days_Avg  )) +
+  geom_histogram()
+
+ggplot(data = qvc_data_customer
+       , mapping = aes(Total_Sales_Avg)) +
+  geom_histogram()
+
+ggplot(data = qvc_data_customer
+       , mapping = aes(Distance_Avg)) +
+  geom_histogram()
+```
+
+```{r}
+qvc_data_customer_transformed <- qvc_data_customer %>% 
+  mutate(
+    Fulfillment_Days_Avg_log = log(Fulfillment_Days_Avg,2),
+    Total_Sales_Avg_log = log(Total_Sales_Avg,2)       
+         ) %>% 
+  select(-n, -Party_Id, -Fulfillment_Days_Avg, -Total_Sales_Avg)
+
+glimpse(qvc_data_customer_transformed)
+```
+
+
+```{r}
+model.glm_log <- glm(formula = Repeat ~ . -Distance_Avg 
+    , family=binomial(link='logit')
+    ,data=qvc_data_customer_transformed)
+
+summary(qvc_data_customer_transformed)
+```
+```
+

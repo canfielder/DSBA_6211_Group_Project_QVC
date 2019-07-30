@@ -1,0 +1,126 @@
+---
+title: "Question 1 Analysis"
+author: "Evan Canfield"
+date: "7/27/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Library Calls
+
+The following libraries are used to develop the data frames for Question 1 of the Group Project
+
+```{r library, warning=FALSE, message=FALSE}
+if(!require(pacman)){install.packages("pacman")}
+library(pacman)
+
+p_load(  
+  caTools,
+  corrplot,
+  Hmisc, 
+  jtools,
+  kableExtra,
+  skimr,
+  stringr,
+  tidyverse
+)
+```
+
+# Data Import
+```{r cache=TRUE}
+#Processed QVC Data Frame
+qvc_data <- readRDS(file = "./data/output/q1_tableau/qvc_data_q1.rds")
+
+state_df <- read.csv("./data/output/q1_tableau/state_info.csv")
+```
+
+```{r}
+glimpse(qvc_data)
+```
+
+# Drop Variables
+```{r}
+qvc_data_1 <- qvc_data %>% 
+  select(Total_Line_Amt
+         , Merchandise_Dept_Desc
+         , state_dest
+         , Fulfillment_Days
+         , Distance)
+```
+
+```{r}
+glimpse(qvc_data_1)
+```
+
+# Create Total Sales by State
+```{r}
+qvc_data_sales_state <- qvc_data_1 %>% 
+  group_by(state_dest) %>% 
+  summarise(Sales_Per_State = sum(Total_Line_Amt),
+            Distance_Per_State = mean(Distance),
+            Fulfillment_Avg = mean(Fulfillment_Days)
+            )
+
+qvc_data_sales_state
+```
+
+# Join State Data Frame
+```{r}
+qvc_data_sales_state_pop <- qvc_data_sales_state %>% 
+  left_join(state_df
+            , by = c("state_dest" = "Abb")) %>% 
+  rename(Population_2018 = POPESTIMATE2018)
+
+glimpse(qvc_data_sales_state_pop)
+
+head(qvc_data_sales_state_pop)
+```
+
+
+#Linear Regression
+```{r}
+sale_pop.lm <- lm(formula = Sales_Per_State  ~ Population_2018
+    , data = qvc_data_sales_state_pop)
+
+summ(sale_pop.lm)
+
+pop_coef <- unname(as.numeric(sale_pop.lm$coefficients)[2])
+pop_coef
+```
+
+# Create Baseline Sales and Sales per Capita Variables
+```{r}
+qvc_data_sales_state_pop_1 <- qvc_data_sales_state_pop %>% 
+  mutate(Sales_Per_Capita = Sales_Per_State / Population_2018,
+         Baseline_Sales = pop_coef * Population_2018,
+         Sales_Delta = Sales_Per_State - Baseline_Sales
+         )
+
+glimpse(qvc_data_sales_state_pop_1)
+```
+
+# Correlation
+```{r}
+qvc_data_sales_state_pop_2 <- qvc_data_sales_state_pop_1 %>% 
+  keep(is.numeric)
+
+qvc_sales_corrm_2 <- cor(qvc_data_sales_state_pop_2)
+
+corrplot(qvc_sales_corrm_2, type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45)
+
+qvc_data_sales_state_pop_3 <- qvc_data_sales_state_pop_2 %>% 
+  select(Sales_Per_Capita, Fulfillment_Avg)
+
+qvc_sales_corrm_3 <- cor(qvc_data_sales_state_pop_3)
+
+qvc_sales_corrm_3
+
+corrplot(qvc_sales_corrm_3, type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45)
+
+```
+

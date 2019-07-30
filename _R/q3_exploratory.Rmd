@@ -1,0 +1,215 @@
+---
+title: "Question 3 - Exploratory"
+author: "Evan Canfield"
+date: "7/26/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Library Calls
+
+The following libraries are used to develop the data frames for Question 1 of the Group Project
+
+```{r library, warning=FALSE, message=FALSE}
+if(!require(pacman)){install.packages("pacman")}
+library(pacman)
+
+p_load(  
+  caTools,
+  Hmisc, 
+  geosphere,
+  lubridate,
+  randomForest,
+  skimr,
+  stringr,
+  tidyverse
+)
+```
+
+# Data Import
+```{r cache=TRUE}
+#Processed QVC Data Frame - Sample
+qvc_data_sample <- readRDS(file = "./data/output/Group Project Dataset/qvc_data_compiled_new_variables_sample.rds")
+
+#Processed QVC Data Frame
+qvc_data_all <- readRDS(file = "./data/output/Group Project Dataset/qvc_data_compiled_new_variables.rds")
+```
+
+
+```{r}
+glimpse(qvc_data_sample)
+```
+
+
+```{r}
+glimpse(qvc_data_all)
+```
+
+# Create a Customer Based Data Set
+```{r}
+#Sample
+qvc_customer_order_count_sample <- qvc_data_sample %>%
+  distinct() %>% 
+  select(Party_Id, Sales_Order_Nbr) %>% 
+  group_by(Party_Id) %>%
+  count() %>% 
+  arrange(-n)
+
+qvc_customer_order_count_sample
+```
+
+```{r}
+#All
+
+qvc_customer_order_count_all <- qvc_data_all %>%
+  distinct() %>% 
+  select(Party_Id, Sales_Order_Nbr) %>% 
+  group_by(Party_Id) %>%
+  count() %>% 
+  arrange(-n)
+
+qvc_customer_order_count_all
+```
+
+# Sample
+```{r}
+qvc_customer_repeat_sample <- qvc_customer_order_count_sample %>% 
+  mutate(Repeat = if_else(n > 1, 1, 0)) %>% 
+  select(-n)
+
+glimpse(qvc_customer_repeat_sample)
+
+summary(qvc_customer_repeat_sample)
+```
+
+# All
+```{r}
+qvc_customer_repeat_all <- qvc_customer_order_count_all %>% 
+  mutate(Repeat = if_else(n > 1, 1, 0)) %>% 
+  select(-n)
+
+glimpse(qvc_customer_repeat_all)
+
+summary(qvc_customer_repeat_all)
+```
+
+# Export Repeat Customer
+## Sample
+```{r}
+saveRDS(object = qvc_customer_repeat_sample
+        , file = "./data/output/q3_modeling/qvc_customer_repeat_sample.RDS")
+
+write.csv(x = qvc_customer_repeat_sample
+          , "./data/output/q3_modeling/qvc_customer_repeat_sample.csv",
+          row.names = FALSE)
+```
+
+## Sample
+```{r}
+saveRDS(object = qvc_customer_repeat_all
+        , file = "./data/output/q3_modeling/qvc_customer_repeat_all.RDS")
+
+write.csv(x = qvc_customer_repeat_all
+          , "./data/output/q3_modeling/qvc_customer_repeat_all.csv",
+          row.names = FALSE)
+```
+
+# Import Model Data
+```{r}
+qvc_customer_model <- read.csv(file = "./data/output/q3_modeling/model_dataset_no_labels.csv"
+                               , stringsAsFactors = FALSE)
+```
+
+# Inspect
+```{r}
+# summary(qvc_customer_model)
+# 
+glimpse(qvc_customer_model)
+```
+
+# Convert Data Types for Imported Data Frame
+```{r}
+
+qvc_customer_model_1 <- qvc_customer_model %>% 
+  select(-X) %>% 
+  mutate(Sales_Order_Nbr = as.character(Sales_Order_Nbr),
+         Package_Id = as.character(Package_Id),
+         Party_Id = as.character(Party_Id),
+         Product_Id = as.character(Product_Id),
+         Source_Ship_Warehouse_Nbr = as.character(Source_Ship_Warehouse_Nbr),
+         Order_Dt = as.Date(Order_Dt),
+         Shipped_Dt = as.Date(Shipped_Dt),
+         Rescheduled_Delivery_Dt = as.Date(Rescheduled_Delivery_Dt),
+         Delivery_Confirmation_Dt = as.Date(Delivery_Confirmation_Dt)
+         )
+
+glimpse(qvc_customer_model_1)
+```
+
+# Join Repeat With Model Data
+```{r}
+
+qvc_customer_model_repeat <- qvc_customer_model_1  %>% 
+  left_join(qvc_customer_repeat
+            , by = "Party_Id")
+
+glimpse(qvc_customer_model_repeat)
+```
+
+# Random Forest
+# Convert Character to Factor
+```{r}
+qvc_customer_model_repeat_fct <- qvc_customer_model_repeat %>% 
+  mutate_if(is.character, as.factor)
+  
+```
+
+#Drop Variables
+Character / Factor variables with more than 53 categories will be dropped. These are generally unique ids
+```{r}
+glimpse(qvc_customer_model_repeat_fct)
+
+qvc_customer_model_repeat_fct_trim <- qvc_customer_model_repeat_fct %>% 
+  select(-Sales_Order_Nbr,
+         -Package_Id,
+         -Party_Id,
+         -Product_Id,
+         -city_distctr,
+         -city_dest,
+         -zip_distctr,
+         -zip_dest,
+         -Source_Ship_Warehouse_Nbr
+         )
+
+glimpse(qvc_customer_model_repeat_fct_trim)
+```
+
+# Export Random Forest Data Frame
+```{r}
+saveRDS(object = qvc_customer_model_repeat_fct_trim
+        , "./data/output/q3_modeling/qvc_data_model_rf.RDS")
+```
+
+
+## Subset
+```{r}
+set.seed(101) 
+
+sample = sample.split(qvc_customer_model_repeat_fct_trim$Repeat, SplitRatio = .70)
+
+df_forest.train = subset(qvc_customer_model_repeat_fct_trim, sample == TRUE)
+
+df_forest.valid = subset(qvc_customer_model_repeat_fct_trim, sample == FALSE)
+```
+
+```{r}
+rf <- randomForest(Repeat ~ .
+                   , data = df_forest.train
+                   , importance = TRUE
+                   , ntree = 20)
+```
+
+

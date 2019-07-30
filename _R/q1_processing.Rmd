@@ -1,0 +1,444 @@
+---
+title: "Data Processing"
+author: "Evan Canfield"
+date: "7/5/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Library Calls
+
+The following libraries are used to develop the data frames for Question 1 of the Group Project
+
+```{r library, warning=FALSE, message=FALSE}
+if(!require(pacman)){install.packages("pacman")}
+library(pacman)
+
+p_load(  
+  caTools,
+  Hmisc, 
+  geosphere,
+  lubridate,
+  noncensus,
+  sf,
+  skimr,
+  stringr,
+  tidycensus,
+  tidyverse,
+  tigris
+)
+```
+
+# Data Import
+
+Three data sets are used in developing the final data frames for Question 1:
+
+* QVC_Data_Compiled.rds: This is the cleaned and compiled data frame of all the qvc sales data, with the variables selected as Group
+* QVCdist_ctr.csv: This is the provided QVC distribution center data
+* us_census_population_county_reformatted.csv: This is county level population data provided by the US Census. The table has been manually reformatted in Excel for easier use upon upload to R. The original table can be found here: https://www.census.gov/data/datasets/time-series/demo/popest/2010s-counties-total.html
+
+
+```{r cache=TRUE}
+#Processed QVC Data Frame
+qvc_data <- readRDS(file = "./data/output/Group Project Dataset/QVC_Data_Compiled.rds")
+
+#QVC Distriubtion Center Information
+qvc_distctr <- read.csv(file = "./data/QVCdist_ctr.csv", stringsAsFactors = FALSE)
+
+#US State Population Census Data - 2018 Projection
+us_census_state_w_PR <- read.csv("./data/us_census_population_state_reformatted_with_PR.csv")
+
+us_census_county_2018 <- read.csv(file = "./data/superseded/us_census_population_county_reformatted.csv")
+
+```
+
+## Check Data Import
+### QVC Data
+```{r}
+glimpse(qvc_data)
+```
+
+### Census Data
+```{r}
+glimpse(qvc_distctr)
+```
+
+
+# Join Distribution Center Information
+```{r}
+qvc_data_1 <- qvc_data %>% 
+  left_join(
+    select(qvc_distctr,Source_Ship_Warehouse_Nbr,POSTL_CD),
+            by = "Source_Ship_Warehouse_Nbr"
+            ) %>% 
+  rename(zip_distctr = POSTL_CD)
+
+#glimpse(qvc_data_1)
+```
+
+# Join Latitiude / Longitude to Destination and Distribution Center
+```{r}
+# Load Zip Code Data
+data("zip_codes")
+
+# Reinstate leading zeros for FIPs codes
+zip_codes$fips  <- str_pad(string = zip_codes$fips, 
+                                width = 5, 
+                                side = "left", 
+                                pad = "0")
+
+# Join Zip Code Data
+qvc_data_2 <- qvc_data_1 %>%
+  
+  #Join to Distribution Center Zip Code
+  left_join(
+    select(zip_codes, zip:longitude),
+    by = c("zip_distctr" = "zip")
+  ) %>% 
+  
+  #Rename Distribution Center Columns
+  rename(
+    city_distctr = city,
+    state_distctr = state,
+    lat_distctr = latitude,
+    lon_distctr = longitude
+  ) %>% 
+  
+  #Join to Desitnation Zip Code
+  left_join(zip_codes
+            , by = c("SHIP_TO_ZIP" = "zip")) %>% 
+  
+  #Rename Destination Columns
+  rename(
+    city_dest = city,
+    state_dest = state,
+    lat_dest = latitude,
+    lon_dest = longitude,
+    fips_dest = fips,
+    zip_dest = SHIP_TO_ZIP
+  ) 
+
+glimpse(qvc_data_2)
+```
+
+# Create Rescheduled Binary - Drop Rescheduled Date
+```{r}
+qvc_data_3 <- qvc_data_2 %>% 
+  mutate(Rescheduled = as.factor(if_else(is.na(Rescheduled_Delivery_Dt), 0, 1)))
+
+glimpse(qvc_data_3)
+```
+
+# Drop NA
+The NA values in the data are related to two factors: missing delivery time values and missing latitude and longitude values. The lat/lon values are missing because new zip codes have been created after the year of the noncensus data. The delivery time is missing from the provided data and cannot be imputed. All NA values will therefore be dropped.
+```{r}
+skim(qvc_data_3)
+
+qvc_data_5 <- qvc_data_3 %>%
+  select(-Rescheduled_Delivery_Dt) %>% 
+  drop_na()
+
+glimpse(qvc_data_5)
+```
+
+
+# New Variables
+
+Two new variables will need to be developed for our analysis. The following code creates the following variables
+
+* Fulfillment_Time: The number of days from order to delivery
+* Distance: Distance, in miles, from Distribution Center to Desitination, based on longitude and latitude of the respective zip codes
+
+#
+```{r}
+qvc_data_fd_test <- qvc_data_5 %>% 
+  mutate(Fulfillment_Days = as.double(difftime(  time1 = ymd(Delivery_Confirmation_Dt)
+                                               , time2 = ymd(Order_Dt)
+                                               , units = "days"))
+        )
+
+glimpse(qvc_data_fd_test)
+```
+
+
+## Fulfillment Time
+```{r}
+qvc_data_6 <- qvc_data_5 %>% 
+  mutate(Fulfillment_Days = as.double(difftime(  time1 = ymd(Delivery_Confirmation_Dt)
+                                               , time2 = ymd(Order_Dt)
+                                               , units = "days"))
+        )
+
+#glimpse(qvc_data_6)
+
+qvc_data_7 <- qvc_data_6 %>% 
+  rowwise() %>%                                                  # Calculate Distance Between Distribution Center an Destination, Miles
+  mutate(Distance = round((distm(x = c(lon_distctr, lat_distctr)    
+                          , y = c(lon_dest, lat_dest)
+                          , fun = distHaversine) * 0.000621371), 0)
+  ) %>% 
+  ungroup()                                                                       # Remove Rowwise Property
+```
+
+# Data Frame Inspection
+There are 371 observations (in the 30% Sample) out of 729,146 total observations where the Fulfillment length is less than 1 day. This is considered an error and these observations will be dropped. Noteably, all of the obersations were shipped from the Rocky Mount, NC warehouse. This may be a systemic error related to the warehouse. A histogram of fulfillment time from this warehouse was generated for further inspection.
+
+```{r}
+# qvc_data_7 %>% 
+#   filter(Source_Ship_Warehouse_Nbr == "0540") %>% 
+#   ggplot(mapping = aes(x = Fulfillment_Days)) +
+#   geom_histogram(binwidth = 5)
+
+qvc_data_8 <- qvc_data_7 %>% 
+  filter(Fulfillment_Days >= 1)
+```
+
+# Data Frame with New Variables
+
+```{r}
+qvc_data_total <- qvc_data_8 %>% 
+  select(Sales_Order_Nbr, 
+         Package_Id , 
+         Party_Id:Product_Id,
+         Ordered_Qty, Shipped_Qty, Actual_Total_Package_Qty, Merchandise_Dept_Desc,
+         Actual_Total_Package_Qty,
+         Order_Dt, Shipped_Dt , Delivery_Confirmation_Dt,
+         Source_Ship_Warehouse_Nbr, 
+         city_distctr, state_distctr, zip_distctr, lat_distctr, lon_distctr,
+         city_dest, state_dest, zip_dest, lat_dest, lon_dest, fips_dest,
+         Rescheduled,
+         Fulfillment_Days,
+         Distance,
+         -SHIP_TO_STATE)
+
+glimpse(qvc_data_total)
+```
+
+# Subset Data
+```{r}
+set.seed(101)
+
+split_ratio <- 0.30
+
+sample <- sample.split(Y = qvc_data_total$Sales_Order_Nbr
+                       ,SplitRatio =  split_ratio)
+
+qvc_data_total_sample = subset(qvc_data_total, sample == TRUE)
+```
+
+
+# Question 1 Data Frame Stripped Down
+```{r}
+qvc_data_q1 <- qvc_data_total %>% 
+  select(Sales_Order_Nbr,
+         Party_Id,
+         Total_Line_Amt,
+         Merchandise_Dept_Desc,
+         Source_Ship_Warehouse_Nbr:Distance,
+         -Rescheduled )
+
+glimpse(qvc_data_q1)
+```
+
+# Subset Data
+```{r}
+set.seed(101)
+
+split_ratio <- 0.30
+
+sample <- sample.split(Y = qvc_data_q1$Sales_Order_Nbr
+                       ,SplitRatio =  split_ratio)
+
+qvc_data_q1_sample = subset(qvc_data_q1, sample == TRUE)
+```
+
+# Sales by FIPS
+Select essential variable and Drop NA values
+```{r}
+qvc_sales_1 <- qvc_data_total %>% 
+  select(Total_Line_Amt
+         , fips_dest
+         ) %>% 
+  arrange(fips_dest)
+  
+glimpse(qvc_sales_1)
+```
+
+### FIPS Data Frame
+Not every FIPS code region had a purchase made from it in the data. In order to fill out the choropleth map, all FIPS codes need to be in the final data frame. For FIPS regions where no sales were made, a Total Sales Amount of zero will be added, as well as other imputations that will not affect any other calculations or visualizations
+```{r}
+us_fips <- us_census_county_2018 %>% 
+  select(GEOID)
+
+# Reinstate leading zeros for FIPs codes
+us_fips$GEOID  <- str_pad(string = us_fips$GEOID, 
+                                width = 5, 
+                                side = "left", 
+                                pad = "0")
+
+glimpse(us_fips)
+```
+
+Join Total FIPS List to Data Frame to Ensure All FIPS ARE On the Map
+```{r}
+qvc_sales_by_fips <- qvc_sales_1 %>% 
+  
+  #Right Join  to Total US FIPS List to Add Missing FIPS and restrict sales to US, removing PR and Territory sales
+  right_join(us_fips
+            , by = c("fips_dest" = "GEOID"))
+
+
+qvc_sales_by_fips
+```
+
+
+Include FIPS Data SEt so you can join state information
+```{r}
+# Load FIPS Code Data
+data("fips_codes")
+
+qvc_sales_by_fips_1 <- qvc_sales_by_fips %>% 
+  mutate(state_code = substr(x = fips_dest
+                             , start = 1
+                             , stop = 2))
+
+# Create List of States and State Codes
+fips_codes_states <- fips_codes %>% 
+  select(state:state_name) %>% 
+  distinct()
+
+# Join Sales by FIPS to State FIPS
+qvc_sales_by_fips_2 <- qvc_sales_by_fips_1 %>% 
+  left_join(fips_codes_states
+            , by = c("state_code"))
+```
+
+# Group By FIPS
+```{r}
+qvc_sales_by_fips_1
+```
+
+# Add Geographic Data
+## State Data Frame
+First, a data frame listing each state along with the state's abbreviation, region, and division, based on R internal data, will be developed.
+```{r}
+# Develop data frame of state name, abbreviations, regions, and dvisions
+state_df <- data.frame(State = state.name
+                       , Abb = state.abb
+                       , Region = state.region
+           )
+
+#Re-define Regions from 4 to 5
+
+Southwest <- c("Arizona", "New Mexico", "Texas", "Oklahoma")
+
+state_df <- state_df %>% 
+  mutate(Region = as.character(Region), 
+         Region = if_else(Region == "North Central", "Midwest", Region),
+         Region = if_else(Region == "South", "Southeast", Region), 
+         Region = if_else(State %in% Southwest, "Southwest", Region))
+
+#Washington DC Dataframe
+state_df_DC <- data.frame( State = "Washington, D.C.", Abb = "DC", Region = "Southeast")
+
+state_df_PR <- data.frame( State = "Puerto Rico", Abb = "PR", Region = "Southeast")
+
+#Bind Washington DC Dataframe into Main State DF
+state_df_1 <- rbind(state_df, state_df_DC, state_df_PR)
+
+state_df_1
+```
+
+Join the state data frame with the fips_codes so that the state data frame has the state portion of the fips code for every state. This is for future joining purposes. Then join the data frame to the 2018 state population data.
+```{r}
+#FIPS codes from Tigris Package
+data(fips_codes)
+
+#Join State_DF to State Fips Code
+state_df_2 <- state_df_1 %>% 
+  left_join(select(fips_codes, state, state_code)
+            ,by = c("Abb" = "state")
+  ) %>% 
+  distinct() %>% 
+  arrange(state_code)
+
+glimpse(state_df_2)
+
+summary(state_df_2)
+
+# Reinstate leading zeros for FIPs codes
+us_census_state_w_PR$STATE  <- str_pad(string = us_census_state_w_PR$STATE, 
+                                width = 2, 
+                                side = "left", 
+                                pad = "0")
+
+#Join Census State Data
+state_df_3 <- state_df_2 %>% 
+  left_join(us_census_state_w_PR
+            , by = c("state_code" = "STATE")
+  )
+
+glimpse(state_df_3)
+
+summary(state_df_3)
+```
+
+## Final Data Frame
+```{r}
+state_df_final <- state_df_3
+```
+
+# Inspect Final
+```{r}
+glimpse(qvc_data_total)
+
+glimpse(qvc_sales_by_fips_2)
+```
+
+# Export Data Frames
+```{r}
+# QVC Sales Total
+write.csv(x = qvc_data_total
+          , file = "./data/output/Group Project Dataset/qvc_data_compiled_new_variables.csv"
+          ,  row.names = FALSE)
+
+saveRDS(object = qvc_data_total
+        , file = "./data/output/Group Project Dataset/qvc_data_compiled_new_variables.rds")
+
+# QVC Sales Total Sample
+write.csv(x = qvc_data_total_sample
+          , file = "./data/output/Group Project Dataset/qvc_data_compiled_new_variables_sample.csv"
+          ,  row.names = FALSE)
+
+saveRDS(object = qvc_data_total_sample
+        , file = "./data/output/Group Project Dataset/qvc_data_compiled_new_variables_sample.rds")
+
+# Q1 Data Frame
+write.csv(x = qvc_data_q1
+          , file = "./data/output/q1_tableau/qvc_data_q1.csv"
+          ,  row.names = FALSE)
+
+saveRDS(object = qvc_data_q1
+        , file = "./data/output/q1_tableau/qvc_data_q1.rds")
+
+# Q1 Data Frame Sample
+write.csv(x = qvc_data_q1_sample
+          , file = "./data/output/q1_tableau/qvc_data_q1_sample.csv"
+          ,  row.names = FALSE)
+
+saveRDS(object = qvc_data_q1_sample
+        , file = "./data/output/q1_tableau/qvc_data_q1_sample.rds")
+
+# QVC Sales Per FIPS
+write.csv(x = qvc_sales_by_fips_2
+          , file = "./data/output/q1_tableau/qvc_sales_by_fips.csv"
+          ,  row.names = FALSE)
+
+# State Data Frame
+write.csv(x = state_df_final
+          , file = "./data/output/q1_tableau/state_info.csv"
+          ,  row.names = FALSE)
+```

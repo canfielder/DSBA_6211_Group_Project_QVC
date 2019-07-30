@@ -1,0 +1,323 @@
+---
+title: "Data Processing"
+author: "Evan Canfield"
+date: "7/5/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Library Calls
+```{r librar, warning=FALSE, message=FALSE}
+if(!require(pacman)){install.packages("pacman")}
+library(pacman)
+
+p_load(  
+  caTools,
+  Hmisc, 
+  corrplot,
+  geosphere,
+  lubridate,
+  janitor,
+  noncensus,
+  plotly,
+  readxl,
+  RcolorBrewer,
+  skimr,
+  stringr,
+  tidyverse
+)
+```
+
+# Data Import
+
+The following files were provided fr analysis of QVC fulfillment for the DSBA 6211 Group Project:
+
+* QVC Data 1
+* QVC Data 2
+* QVC Data 3
+* QVCdist_ctr
+* QVCorderstatustype
+* QVC Data Dictionary
+
+These files, with the exception of "QVC Data Dictionary", will be uploaded for processing .
+
+An error was noticed in the data during inspectiion in Excel. The rows listed below had blank value inserted at Size_DESC and the remaining data shifted over one column. Therefore, this shifted data was readjusted manually before upload.
+
+* QVC Data 1: 220464 (#Sales_Order_Nbr: 649344509406)
+* QVC Data 1: 259651 (#Sales_Order_Nbr: 449320937874)
+* QVC Data 2: 111684 (#Sales_Order_Nbr: 649288839226)
+* QVC Data 2: 462659 (#Sales_Order_Nbr: 849460177698)
+* QVC Data 3: 271093 (#Sales_Order_Nbr: 149349466481)
+* QVC Data 3: 303069 (#Sales_Order_Nbr: 649356909726)
+
+```{r data import, cache=TRUE,warning=FALSE}
+qvc_data_1 <- read_xlsx("./data/QVC Data 1.xlsx", na = c("NA", ""))
+
+qvc_data_2 <- read_xlsx("./data/QVC Data 2.xlsx", na = c("NA", ""))
+
+qvc_data_3 <- read_xlsx("./data/QVC Data 3.xlsx", na = c("NA", ""))
+
+qvc_distctr <- read_xlsx("./data/QVCdist_ctr.xlsx", na = c("NA", "")) 
+
+qvc_orderstatustype <- read_xlsx("./data/QVCorderstatustype.xlsx", na = c("NA", "")) 
+
+us_census_2018 <- read.csv("./data/us_census_population_change_2018_reformatted.csv")
+```
+
+# Join the QVC Data Files
+
+With all three QVC Data files available they can now be combined into a single data frame.
+```{r bind qvc data files}
+ qvc_data <- qvc_data_1 %>% 
+   bind_rows(qvc_data_2) %>% #Bind QVC Data 2 to QVC Data 1
+   bind_rows(qvc_data_3)     #Bind QVC Data 3  
+```
+
+Rename Sales Order Number to remove octothorpe.
+```{r}
+qvc_data <- qvc_data %>% 
+  rename(Sales_Order_Nbr = '#Sales_Order_Nbr')
+```
+
+View the data frame to ensure change.
+```{r}
+#glimpse(qvc_data)
+
+
+```
+
+# Drop Variables
+
+The following variables were determined to not be relevant to the analysis and can be dropped from the data frame.
+```{r drop}
+drop_variables = c(   "Sales_Order_Line_Nbr"
+                    , "Order_Type_Cd"
+                    , "Shipping_Priority_Ind"
+                    , "Line_Status_Dt"
+                    , "Skn_Id"
+                    , "Sku_Id"
+                    , "Color_Desc"
+                    , "Size_Desc"
+                    , "Assigned_Dc_Id"
+                    , "Cancelled_Qty"
+                    , "Merchandise_Div_Desc"
+                    , "Carrier_Used_Tracking_Id"
+                    , "Shipment_Status_Dt"
+                    , "Pickup_Dt"
+                    , "Scheduled_Delivery_Dt"
+                    , "Package_Scan_Dttm"
+                    , "Package_Cnt"
+                    , "SHIP_TO_CITY"
+                    )
+
+qvc_data_drop <- qvc_data %>% 
+  select(-drop_variables)
+
+# Verify Change
+#glimpse(qvc_data_drop)
+```
+
+# Data Modifications
+## Leading Zeros 
+The leading zeros in the zip code values were dropped in the upload to R. This process will reinsert them. 
+```{r Ship_To_Zip}
+# Replace Dropped Leading Zeros
+qvc_data_drop$SHIP_TO_ZIP <- str_pad(string = qvc_data_drop$SHIP_TO_ZIP, 
+                                width = 5, 
+                                side = "left", 
+                                pad = "0")
+# Verify Change
+#glimpse(qvc_data_drop)
+```
+
+### Reinsert leading zero fro Source_Ship_Warehouse_Nbr
+The leading zeros in the Source_Ship_Warehouse_Nbr values were dropped in the upload to R. This process will reinsert them.
+```{r Source_Ship_Warehouse_Nbr }
+# Replace Dropped Leading Zeros
+qvc_data_drop$Source_Ship_Warehouse_Nbr  <- str_pad(string = qvc_data_drop$Source_Ship_Warehouse_Nbr, 
+                                width = 4, 
+                                side = "left", 
+                                pad = "0")
+  
+# Verify Change
+#glimpse(qvc_data_drop)
+```
+
+## Data Types
+There are several variables with incorrect data types. Several different numeric types are unique codes, not continuous variables. These types will be converted to character. Several other attributes, both numeric and character, should be considered factors.
+```{r}
+#Convert Factors
+qvc_data_drop <- qvc_data_drop %>% 
+  mutate(
+    Merchandise_Dept_Desc = factor(Merchandise_Dept_Desc),
+    SHIP_TO_STATE = factor(SHIP_TO_STATE)
+    )
+
+#Convert Characters
+qvc_data_drop <- qvc_data_drop %>% 
+  mutate(
+    Sales_Order_Nbr = as.character(Sales_Order_Nbr),
+    Party_Id  = as.character(Party_Id),
+    Product_Id = as.character(Product_Id),
+    Package_Id = as.character(Package_Id)
+    )
+```
+
+# Post Processing Review
+```{r}
+glimpse(qvc_data_drop)
+```
+
+```{r}
+summary(qvc_data_drop)
+```
+
+```{r}
+skim(qvc_data_drop)
+```
+
+# Export Dataframe
+## R File
+```{r}
+saveRDS(object = qvc_data_drop
+        , file = "./data/QVC_Data_Compiled.rds")
+```
+
+## Text File
+```{r}
+write.csv(x = qvc_data_drop
+          , file = "./data/QVC_Data_Compiled.csv")
+```
+
+
+## New Variables
+### Order to Delivery
+```{r cache.lazy=TRUE}
+qvc_data_clean_6 <- qvc_data_clean_5 %>% 
+  mutate(Process_Days = as.numeric(Delivery_Confirmation_Dt - Order_Dt),               # Number of Days Order to Delivered
+        Rescheduled = if_else(is.na(Rescheduled_Delivery_Dt), 0, 1) ,                  # Rescheduled = 1 (Binary)
+        ) %>% 
+  rowwise() %>% 
+  mutate(Distance = round((distm(x = c(Longitude_distctr, Latitude_distctr)             # Calculate Distance Between Distribution Center an Destination, Miles
+                          , y = c(Longitude_dest, Latitude_dest)
+                          , fun = distHaversine) * 0.000621371), 0)
+  ) %>% 
+  ungroup() %>%                                                                        # Remove Rowwise Property
+  select(-Rescheduled_Delivery_Dt)                                                     # Drop Rescheduled Date Once Binary is Created
+
+glimpse(qvc_data_clean_6)
+```
+
+# Drop NA
+```{r}
+qvc_data_clean_7 <- qvc_data_clean_6 %>% 
+  drop_na()
+```
+
+# Export
+```{r}
+saveRDS(object = qvc_data_clean_7
+        , file = "./data/qvc_data_processed_sales.rds")
+```
+
+# Customer Based Database
+```{r}
+qvc_customer_recurring <- qvc_data_clean_7 %>% 
+  group_by(Party_Id) %>% 
+  summarise(Number_of_Orders = n()) %>% 
+  mutate(Return_Customer = as.factor(if_else(Number_of_Orders > 1, 1, 0)))
+
+qvc_customer <- qvc_data_clean_7 %>% 
+  group_by(Party_Id) %>% 
+  summarise(Number_of_Orders = n(),
+            Process_Time_Avg = round(mean(Process_Days),1),
+            Total_Paid_Avg = round(mean(Total_Line_Amt),1)
+            ) %>% 
+  mutate(Return_Customer = as.factor(if_else(Number_of_Orders > 1, 1, 0))) %>% 
+  arrange(desc(Number_of_Orders))
+
+glimpse(qvc_customer)
+
+# Develop data frame of state name, abbreviations, regions, and dvisions
+state_df <- data.frame(Name = state.name
+                       , Abb = state.abb
+                       , Region = state.region
+                       , Division = state.division)
+
+# Cusstomer Location Data
+qvc_customer_location <- qvc_data_clean_7 %>% 
+  select(Party_Id,City_dest: Fips_dest) %>% 
+  distinct()
+
+glimpse(qvc_customer_location)
+
+# Add State, Region to Customer Data Frame
+qvc_customer_1 <- qvc_customer %>% 
+  left_join(y = qvc_customer_location
+            , by = "Party_Id") %>% 
+  left_join(state_df
+            , by = c("State_dest" = "Abb")) %>% 
+  select(Party_Id:State_dest, Region)
+
+glimpse(qvc_customer_1)
+```
+
+# Correlation Visuals
+## Data Frame Prep
+```{r}
+qvc_customer_2 <- qvc_customer_1 %>% 
+  filter(Process_Time_Avg >= 1) %>% 
+  drop_na()
+```
+
+## Boxplot - Number of Orders
+```{r}
+p_box <- ggplot(data = qvc_customer_2
+       , mapping = aes(x = "", y = Process_Time_Avg))+
+  geom_boxplot() + 
+  coord_flip()
+
+p_box
+
+ggplotly(p_box)
+```
+
+
+## Scatterplot
+```{r}
+p_all <- qvc_customer_2 %>% 
+  filter(Number_of_Orders > 1) %>% 
+  ggplot(mapping = aes(x = Process_Time_Avg, y = Number_of_Orders )) +
+  geom_jitter(aes(color = Region), alpha = 0.5)  +
+  labs(title = "Customer Order Count vs. Average Process Time (Days)"
+       , subtitle = "Complete Timeline")
+
+p_all
+```
+
+# Histogram of Process Time for Recurring vs Not Recurring
+```{r}
+#Return Customers
+qvc_customer_2 %>% 
+  filter(Return_Customer==1, 
+         Process_Time_Avg <= 50) %>% 
+  ggplot(mapping = aes(Process_Time_Avg)) +
+  geom_histogram(binwidth = 0.5)
+
+#Non-Return Customers
+qvc_customer_2 %>% 
+  filter(Return_Customer==0, 
+         Process_Time_Avg <= 50) %>% 
+  ggplot(mapping = aes(Process_Time_Avg)) +
+  geom_histogram(binwidth = 1)
+```
+
+
+
+```{r}
+cor.test(qvc_customer$Process_Time_Avg, as.numeric(qvc_customer$Return_Customer))
+```
+

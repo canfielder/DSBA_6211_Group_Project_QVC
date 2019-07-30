@@ -1,0 +1,543 @@
+---
+title: "Data Processing"
+author: "Evan Canfield"
+date: "7/5/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Library Calls
+```{r library, warning=FALSE, message=FALSE}
+if(!require(pacman)){install.packages("pacman")}
+library(pacman)
+
+p_load(  
+  caTools,
+  Hmisc, 
+  corrplot,
+  geosphere,
+  leaflet,
+  lubridate,
+  noncensus,
+  plotly,
+  readxl,
+  RColorBrewer,
+  skimr,
+  stringr,
+  tidyverse
+)
+```
+
+# Data Import
+```{r cache=TRUE}
+#Processed QVC Data Frame
+qvc_data <- readRDS(file = "./data/output/Group Project Dataset/QVC_Data_Compiled.rds")
+
+qvc_distctr <- read.csv(file = "./data/QVCdist_ctr.csv", stringsAsFactors = FALSE)
+
+#US Population Census Data - 2018 PRojection
+us_census_2018 <- read.csv("./data/us_census_population_change_2018_reformatted.csv")
+```
+
+## Check Data Import
+### QVC Data
+```{r}
+#glimpse(qvc_data)
+```
+
+### Census Data
+```{r}
+#glimpse(qvc_distctr)
+```
+
+### Census Data
+```{r}
+glimpse(qvc_data)
+```
+
+# Drop Unnecessary Variables
+```{r}
+qvc_data <-
+  select(
+    Sales_Order_Nbr, 
+    Order_Dt, 
+    Total_Line_Amt,
+    Source_Ship_Warehouse_Nbr,
+    Delivery_Confirmation_Dt,
+    SHIP_TO_ZIP
+  )
+```
+
+
+```{r}
+qvc_data %>% 
+  group
+```
+
+
+# Subset Data For Quicker Process Times
+```{r}
+set.seed(101)
+
+split_ratio <- 0.30
+
+sample <- sample.split(Y = qvc_data$Sales_Order_Nbr
+                       ,SplitRatio =  split_ratio)
+
+qvc_data_sample = subset(qvc_data, sample == TRUE)
+```
+
+# Join Distribution Center Information
+```{r}
+qvc_data_1 <- qvc_data_sample %>% 
+  left_join(
+    select(qvc_distctr,Source_Ship_Warehouse_Nbr,POSTL_CD),
+            by = "Source_Ship_Warehouse_Nbr"
+            ) %>% 
+  rename(zip_distctr = POSTL_CD)
+
+#glimpse(qvc_data_1)
+```
+
+
+# Add Geographic Data
+Latitude, Longitude, City, State will be added to the data frame in relation to the shipping warehouse and destination zip codes. FIPs codes will be added based on the detination zip codes as well.
+
+## State Data Frame
+First, a data frame listing each state along with the state's abbreviation, region, and division, based on R internal data, will be developed.
+```{r}
+# Develop data frame of state name, abbreviations, regions, and dvisions
+state_df <- data.frame(State = state.name
+                       , Abb = state.abb
+                       , Region = state.region
+                       )
+
+
+#Re-define Regions from 4 to 5
+
+Southwest <- c("Arizona", "New Mexico", "Texas", "Oklahoma")
+
+state_df <- state_df %>% 
+  mutate(Region = as.character(Region), 
+         Region = if_else(Region == "North Central", "Midwest", Region),
+         Region = if_else(Region == "South", "Southeast", Region), 
+         Region = if_else(State %in% Southwest, "Southwest", Region))
+```
+
+## Join Location Data - Uncensus Package
+```{r}
+# Load Zip Code Data
+data("zip_codes")
+
+# Reinstate leading zeros for FIPs codes
+zip_codes$fips  <- str_pad(string = zip_codes$fips, 
+                                width = 5, 
+                                side = "left", 
+                                pad = "0")
+
+# Join Zip Code Data
+qvc_data_2 <- qvc_data_1 %>%
+  
+  #Join to Distribution Center Zip Code
+  left_join(
+    select(zip_codes, zip:longitude),
+    by = c("zip_distctr" = "zip")
+  ) %>% 
+  
+  #Rename Distribution Center Columns
+  rename(
+    city_distctr = city,
+    state_distctr = state,
+    lat_distctr = latitude,
+    lon_distctr = longitude
+  ) %>% 
+  
+  #Join to Desitnation Zip Code
+  left_join(zip_codes
+            , by = c("SHIP_TO_ZIP" = "zip")) %>% 
+  
+  #Rename Destination Columns
+  rename(
+    city_dest = city,
+    state_dest = state,
+    lat_dest = latitude,
+    lon_dest = longitude,
+    fips_dest = fips,
+    zip_dest = SHIP_TO_ZIP
+  ) 
+
+#Reorder Columns
+qvc_data_3 <- qvc_data_2 %>% 
+  select(Sales_Order_Nbr,Package_Id,Party_Id:Product_Id,Ordered_Qty, Shipped_Qty, Actual_Total_Package_Qty, Merchandise_Dept_Desc,
+         Order_Dt, Shipped_Dt, Rescheduled_Delivery_Dt, Delivery_Confirmation_Dt,
+         Source_Ship_Warehouse_Nbr, city_distctr:lon_distctr, zip_distctr,
+         city_dest:lon_dest, zip_dest, fips_dest
+         )
+glimpse(qvc_data_3)
+```
+
+# FUll Join Test
+```{r}
+# Load Zip Code Data
+data("zip_codes")
+
+# Reinstate leading zeros for FIPs codes
+zip_codes$fips  <- str_pad(string = zip_codes$fips, 
+                                width = 5, 
+                                side = "left", 
+                                pad = "0")
+
+# Join Zip Code Data
+qvc_data_2 <- qvc_data_1 %>%
+  
+  #Join to Distribution Center Zip Code
+  left_join(
+    select(zip_codes, zip:longitude),
+    by = c("zip_distctr" = "zip")
+  ) %>% 
+  
+  #Rename Distribution Center Columns
+  rename(
+    city_distctr = city,
+    state_distctr = state,
+    lat_distctr = latitude,
+    lon_distctr = longitude
+  ) #%>% 
+  
+glimpse(qvc_data_2)
+
+qvc_data_fj <- qvc_data_2 %>% 
+  #Join to Desitnation Zip Code
+  full_join(zip_codes
+            , by = c("SHIP_TO_ZIP" = "zip")) %>% 
+  
+  #Rename Destination Columns
+  rename(
+    city_dest = city,
+    state_dest = state,
+    lat_dest = latitude,
+    lon_dest = longitude,
+    fips_dest = fips,
+    zip_dest = SHIP_TO_ZIP
+  ) %>% 
+  select(-SHIP_TO_STATE)
+
+glimpse(qvc_data_fj)
+
+qvc_data_fj %>% 
+  distinct(fips_dest)
+
+#Reorder Columns
+qvc_data_fj_reorder <- qvc_data_fj %>% 
+  select(Sales_Order_Nbr,Package_Id,Party_Id:Product_Id,Ordered_Qty, Shipped_Qty, Actual_Total_Package_Qty, Merchandise_Dept_Desc,
+         Order_Dt, Shipped_Dt, Rescheduled_Delivery_Dt, Delivery_Confirmation_Dt,
+         Source_Ship_Warehouse_Nbr, city_distctr:lon_distctr, zip_distctr,
+         city_dest:lon_dest, zip_dest, fips_dest
+         )
+glimpse(qvc_data_fj_reorder)
+```
+
+```{r}
+qvc_data_fj_reorder %>% 
+  distinct(fips_dest) %>% 
+  nrow()
+
+zip_codes
+
+zip_codes %>% 
+  distinct(fips) %>% 
+  nrow()  
+
+qvc_data_fj_reorder_1 <- qvc_data_fj_reorder %>% 
+  mutate(Total_Line_Amt = if_else(is.na(Total_Line_Amt),1, Total_Line_Amt))
+
+summary(qvc_data_fj_reorder_1)
+```
+
+
+# New Variables
+
+Several new variables will need to be developed for our analysis. The following code creates the following variables
+
+* Fulfillment_Time: The number of days from order to delivery
+* Rescheduled: Binary which indicates if an order has been rescheduled (1) or not (0)
+* Distance: Distance, in miles, from Distribution Center to Desitination, based on longitude and latitude of the respective zip codes
+
+## Fulfillment Time
+```{r cache.lazy=TRUE}
+qvc_data_4 <- qvc_data_3 %>% 
+  mutate(Fulfillment_Days = as.numeric(Delivery_Confirmation_Dt - Order_Dt),           # Number of Days Order to Delivered
+        Rescheduled = if_else(is.na(Rescheduled_Delivery_Dt), 0, 1) ,                  # Rescheduled = 1 (Binary)
+        ) %>% 
+  rowwise() %>% 
+  mutate(Distance = round((distm(x = c(lon_distctr, lat_distctr)                       # Calculate Distance Between Distribution Center an Destination, Miles
+                          , y = c(lon_dest, lat_dest)
+                          , fun = distHaversine) * 0.000621371), 0)
+  ) %>% 
+  ungroup() %>%                                                                        # Remove Rowwise Property
+  select(-Rescheduled_Delivery_Dt)                                                     # Drop Rescheduled Date Once Binary is Created
+
+glimpse(qvc_data_4)
+```
+
+
+# Visualizations
+## Checking Delivery Times 
+```{r}
+qvc_data_4 %>% 
+  select(Sales_Order_Nbr,Order_Dt, Shipped_Dt,Delivery_Confirmation_Dt, Fulfillment_Days) %>% 
+  filter(Fulfillment_Days < 1) %>% 
+  nrow()
+```
+
+The 373 observations where the delivery date preceded the order date are a very small portion of the data and will be treated as an error. These observations are dropped
+
+```{r}
+qvc_data_5 <- qvc_data_4 %>% 
+  filter(Fulfillment_Days >= 1) %>% 
+  drop_na()
+```
+
+```{r}
+p_Fulfillment_Days_hist <- ggplot(data = qvc_data_5,
+                                     mapping = aes(x = Fulfillment_Days))+
+  geom_histogram() +
+  theme(legend.position = "none")
+
+p_Fulfillment_Days_hist
+```
+
+Log Tranformed
+```{r}
+p_Fulfillment_Days_hist_log <- ggplot(data = qvc_data_5,
+                                     mapping = aes(x = log(Fulfillment_Days)))+
+  geom_histogram() +
+  theme(legend.position = "none")
+
+p_Fulfillment_Days_hist_log
+```
+
+
+# Project Question 1
+### Sales vs Population
+```{r}
+# Develop data frame with total sales, average shippin gdistance, and average shipping time (days) for every state
+qvc_sales_by_state <- qvc_data_5 %>% 
+  group_by(state_dest) %>% 
+  summarise(Total_Sales = round(sum(Total_Line_Amt), 0),
+            Distance_Avg = round(mean(Distance),0),
+            Fulfillment_Days_Avg = round(mean(Fulfillment_Days),1))
+
+#Convert State to Character
+qvc_sales_by_state$state_dest <- as.character(qvc_sales_by_state$state_dest)
+
+# Join US Census population data frame with state dataframe for joining purposes 
+state_pop <- us_census_2018 %>% 
+  left_join(state_df, by = c("State" = "State")) %>% 
+  select(State, Abb, Region, Division, Population) %>% 
+  mutate(Population_per_k = Population / 1000)
+
+#Convert factors to characters
+state_pop$Abb <- as.character(state_pop$Abb)
+
+state_pop$Region <- as.character(state_pop$Region)
+
+state_pop$Region <- as.character(state_pop$Region)
+
+state_pop$Division <- as.character(state_pop$Division)
+
+# Join census frame with sales dataframe
+qvc_sales_by_state_1 <- qvc_sales_by_state %>% 
+  
+  #Join US Census Data
+  left_join(state_pop, by = c("state_dest" = "Abb")) %>% 
+  
+  #Rename Column
+  rename(Abb = state_dest) %>% 
+  
+  #Create New Variables
+  mutate(Sales_Percentage = round((Total_Sales / sum(Total_Sales)*100), 2),
+         Sales_Per_Capita = round((Total_Sales / Population_per_k), 3)) %>% 
+  
+  #Arrange Data Frame Columns
+  select(State, Abb, Region, Division, Population, Population_per_k, Total_Sales, Sales_Percentage, Sales_Per_Capita, Fulfillment_Days_Avg, Distance_Avg) %>% 
+
+glimpse(qvc_sales_by_state_1)
+```
+
+## Visualize Sales vs Population
+```{r, warning=FALSE}
+p_sales_vs_pop <- ggplot(data = qvc_sales_by_state_1
+       , mapping = aes(x = Population_per_k, y = Total_Sales)) +
+  geom_point(aes(color = Region, text = State), size = 4, alpha = 0.9) +
+  #geom_text(aes(label=if_else(Sales_Percentage > 4,as.character(State),'')),hjust=0,vjust=0) +
+  geom_smooth(method = "lm", se = TRUE) +
+  #xlim(0, 5e7)  +
+  scale_colour_brewer(palette = "Set2") +
+  labs(title = "Total Sales vs Population, Per State") +
+  theme(legend.position = "top") + 
+  theme_minimal()
+
+ggplotly(p_sales_vs_pop
+         , tooltip = "text") %>% 
+   layout(legend = list(orientation = "h", x = 0.5, y = -0.2))
+
+```
+
+## Linear regression
+```{r}
+qvc_sales_by_state.lm <- lm(formula = Total_Sales ~ Population_per_k
+                            , data = qvc_sales_by_state_1)
+
+summary(qvc_sales_by_state.lm)
+
+state_sales_rate_per_k <- unname(qvc_sales_by_state.lm$coefficients[2])
+state_sales_rate_per_k
+```
+
+With the linear regression slope we create a dataframe documenting each state's delta from the mean, in sales
+* Calcualte projected sales, and then calcualte actual - projected. Generate plot of each state, with postitive delta on one side of the midline, negative on the other
+
+
+## Visualize Distance vs Delivery Times
+```{r, warning=FALSE}
+p_distance_vs_delivery_times_line <- ggplot(data = qvc_sales_by_state_1
+       , mapping = aes(x = Fulfillment_Days_Avg, y = Distance_Avg)) +
+  geom_point(aes(color = Region, text = State), alpha = 0.9) +
+  geom_smooth(method = "lm", se = TRUE) +
+  #xlim(0, 5e7)  +
+  scale_colour_brewer(palette = "Set2") +
+  labs(title = "Shipping Distance vs Fulfillment Length (Days), Per State") +
+  theme(legend.position = "bottom") + 
+  theme_minimal()
+
+ggplotly(p_distance_vs_delivery_times_line
+         , tooltip = "text") %>% 
+  layout(legend = list(orientation = "h", x = 0.5, y = -0.2))
+```
+
+## Visualize Spend per Population Vs Delivery Times
+```{r, warning=FALSE}
+p_sale_per_pop_vs_delivery_times <- ggplot(data = qvc_sales_by_state_1
+       , mapping = aes(x = Fulfillment_Days_Avg, y = (Total_Sales / Population_per_k))) +
+  geom_point(aes(color = Region, text = State), alpha = 0.9) +
+  geom_smooth(method = "lm", se = TRUE) +
+  #xlim(0, 5e7)  +
+  scale_colour_brewer(palette = "Set2") +
+  labs(title = "Sales per Capita vs Fulfillment Length (Days), per State") +
+  theme(legend.position = "bottom") +
+  theme_minimal()
+
+ggplotly(p_sale_per_pop_vs_delivery_times
+         , tooltip = "text") %>% 
+  layout(legend = list(orientation = "h", x = 0.5, y = -0.2))
+```
+
+## Vertical Line State PLot
+### Develop Data Frame
+```{r}
+glimpse(qvc_sales_by_state_1)
+
+state_sales_rate_per_k
+
+qvc_sales_vert_line <- qvc_sales_by_state_1 %>% 
+  select(State, Region, Population_per_k, Total_Sales) %>% 
+  mutate(Projected_Sales = round(Population_per_k * state_sales_rate_per_k, 0),
+         Sales_Delta = Projected_Sales - Total_Sales, 
+         Sales_Direction = if_else(Sales_Delta > 0 , "Positive", "Negative"))
+
+qvc_sales_vert_line
+
+p0_sales_vert <- ggplot(
+  data = qvc_sales_vert_line
+  , mapping = aes(x = Sales_Delta
+                  , y = reorder(State, Sales_Delta)
+                  , color = Sales_Direction
+                  )
+) 
+
+p1_sales_vert <- p0_sales_vert + 
+  geom_vline(xintercept = 0, color = "gray30") +
+  geom_point() + 
+  theme_minimal()
+
+p1_sales_vert
+  
+p2_sales_vert <- p1_sales_vert +
+  facet_wrap(~ Region, ncol = 2, scales="free_y") +
+    guides(color=FALSE) + labs(x = "Sales Delta", y = "") +
+    theme(axis.text=element_text())
+
+p2_sales_vert
+
+```
+
+
+## Plot Distribution Centers
+```{r}
+qvc_data_5
+
+# Distribution Center Location Dataframe
+distrctr_location <- qvc_data_5 %>% 
+  select(Source_Ship_Warehouse_Nbr:zip_distctr) %>% 
+  distinct() %>% 
+  arrange(state_distctr, city_distctr)
+
+# Distribution Center Sales Data
+distrctr_sales <- qvc_data %>% 
+  group_by(Source_Ship_Warehouse_Nbr) %>% 
+  summarise(Total_Sales = round(sum(Total_Line_Amt), 0)) %>% 
+  mutate(Total_Sales_Percent = round((Total_Sales / sum(Total_Sales) * 100), 1)) %>% 
+  left_join(distrctr_location, by = "Source_Ship_Warehouse_Nbr") %>% 
+  arrange(desc(Total_Sales))
+
+```
+
+Inspect the new data frames
+```{r}
+glimpse(distrctr_location)
+
+glimpse(distrctr_sales)
+```
+
+Leaflet Visual
+```{r}
+leaflet(data = distrctr_sales) %>% 
+  addTiles()%>% 
+  addCircleMarkers(lng = ~Longitude_distctr
+                   , lat = ~Latitude_distctr
+                   #, stroke = FALSE
+                   , radius = ~Total_Sales_Percent
+                   , label = paste(distrctr_sales$City_distctr,", ",(distrctr_sales$State_distctr))
+                   )%>% 
+  setView(lng = -96, 
+          lat = 37.8, 
+          zoom = 4) %>%
+  setMaxBounds(lng1 = -180, 
+               lng2 = -60,
+               lat1 = 73, 
+               lat2 = 15)
+```
+
+# Export
+```{r}
+
+glimpse(qvc_data_5)
+state_df
+
+# Full Data Frame
+write.csv(x = qvc_data_5
+          , file = "./Tableau Visuals/data/qvc_data_complete.csv")
+
+#State Data Frame
+write.csv(x = state_df
+          , file = "./Tableau Visuals/data/state_df.csv")
+
+# Vertical Line Plot
+write.csv(x = qvc_sales_vert_line
+          , file = "./Tableau Visuals/data/qvc_sales_vert_line.csv")
+```
+

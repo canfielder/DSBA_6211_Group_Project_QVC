@@ -1,0 +1,604 @@
+---
+title: "Data Processing"
+author: "Evan Canfield"
+date: "7/5/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Library Calls
+
+```{r library, warning=FALSE, message=FALSE}
+if(!require(pacman)){install.packages("pacman")}
+library(pacman)
+
+p_load(tidyverse, caTools, Hmisc, rowr, readxl, skimr, stringr, zipcode, maps, tidycensus, lubridate)
+```
+
+## Data Import
+
+The following files were provided for analysis of QVC fulfillment for the DSBA 6211 Group Project:
+
+* QVC Data 1
+* QVC Data 2
+* QVC Data 3
+* QVCdist_ctr
+* QVCorderstatustype
+* QVC Data Dictionary
+
+These files, with the exception of "QVC Data Dictionary", will be uploaded for processing .
+
+An error was noticed in the data during inspectiion in Excel. The rows listed below had blank value inserted at Size_DESC and the remaining data shifted over one column. Therefore, this shifted data was readjusted manually before upload.
+
+* QVC Data 1: 220464 (#Sales_Order_Nbr: 649344509406)
+* QVC Data 1: 259651 (#Sales_Order_Nbr: 449320937874)
+* QVC Data 2: 111684 (#Sales_Order_Nbr: 649288839226)
+* QVC Data 2: 462659 (#Sales_Order_Nbr: 849460177698)
+* QVC Data 3: 271093 (#Sales_Order_Nbr: 149349466481)
+* QVC Data 3: 303069 (#Sales_Order_Nbr: 649356909726)
+
+```{r data import, warning=FALSE, cache.lazy=TRUE}
+qvc_data_1 <- read_xlsx("./data/QVC Data 1.xlsx", na = c("NA", ""))
+
+#qvc_data_2 <- read_xlsx("./data/QVC Data 2.xlsx", na = c("NA", ""))
+
+#qvc_data_3 <- read_xlsx("./data/QVC Data 3.xlsx", na = c("NA", ""))
+
+qvc_distctr <- read.csv("./data/QVCdist_ctr.csv")
+
+qvc_orderstatustype <- read_xlsx("./data/QVCorderstatustype.xlsx", na = c("NA", "")) 
+```
+
+## Join the QVC Data Files
+
+With all three QVC Data files available they can now be combined into a single dataframe.
+```{r bind qvc data files}
+# qvc_data <- qvc_data_1 %>% 
+#   bind_rows(qvc_data_2) %>% #Bind QVC Data 2 to QVC Data 1
+#   bind_rows(qvc_data_3)     #Bind QVC Data 3  
+
+qvc_data <- qvc_data_1
+```
+
+## Subset Data for Faster Processing During Investigation
+```{r}
+set.seed(101)
+
+split_ratio <- 0.20
+
+sample <- sample.split(qvc_data$Sales_Order_Line_Nbr, split_ratio)
+
+qvc_data = subset(qvc_data, sample == TRUE)
+
+```
+
+## Data Inspection
+
+#### Dataframe Structure
+```{r summary}
+glimpse(qvc_data)
+```
+
+#### Data Summary
+```{r describe}
+#describe(qvc_data)
+```
+
+```{r skim dataset}
+skim(qvc_data)
+```
+
+```{r}
+summary(qvc_data)
+```
+
+## Rename Sales Order Number
+```{r}
+qvc_data <- qvc_data %>% 
+  rename(Sales_Order_Nbr = '#Sales_Order_Nbr')
+```
+
+
+## Data Investigation
+### Pair 2 Asssigned Variables
+#### Sales_Order_Line_Nbr
+Data Type Check / Conversion
+
+Stats
+```{r}
+qvc_data$Sales_Order_Line_Nbr <- as.factor(qvc_data$Sales_Order_Line_Nbr)
+
+qvc_data %>% 
+  select(Sales_Order_Line_Nbr) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Sales_Order_Line_Nbr) %>% 
+  summary()
+
+qvc_data %>% 
+  group_by(Sales_Order_Line_Nbr) %>%
+  tally() %>% 
+  mutate(Percent = round(n / nrow(qvc_data)*100, 3)) %>% 
+  arrange(desc(n)) %>% 
+  head(n = 10)
+```
+
+#### Party_Id
+Data Type Check / Conversion
+```{r}
+qvc_data$Party_Id <- as.character(qvc_data$Party_Id)
+
+qvc_data %>% 
+  select(Party_Id) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Party_Id) %>% 
+  summary()
+
+qvc_data %>% 
+  group_by(Party_Id) %>%
+  tally() %>% 
+  mutate(Percent = round(n / nrow(qvc_data)*100, 3)) %>% 
+  arrange(desc(n)) %>% 
+  head(n = 10)
+```
+
+
+
+
+#### Total_Line_Amt
+Data Type Check / Conversion
+```{r}
+qvc_data %>% 
+  select(Total_Line_Amt) %>% 
+  skim()
+```
+
+Log Transformation Check
+```{r}
+#Log Transformation
+qvc_data %>% 
+  select(Total_Line_Amt) %>% 
+  mutate(Total_Line_Amt_log = log(Total_Line_Amt + 1)) %>% 
+  gather() %>% 
+  ggplot(mapping = aes(x = value, group = key)) +
+    geom_histogram(bins = 50) + 
+    facet_wrap(~ key, scales = "free")
+```
+
+#### Line_Status_Cd
+Data Type Check / Conversion
+```{r}
+qvc_data$Line_Status_Cd <- as.character(qvc_data$Line_Status_Cd)
+
+qvc_data %>% 
+  select(Line_Status_Cd) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Line_Status_Cd) %>% 
+  summary()
+
+qvc_data %>% 
+  group_by(Line_Status_Cd) %>%
+  tally() %>% 
+  mutate(Percent = round(n / nrow(qvc_data)*100, 3)) %>% 
+  arrange(desc(n)) %>% 
+  head(n = 10)
+```
+
+#### Line_Status_Dt
+Data Type Check / Conversion
+```{r}
+qvc_data %>% 
+  select(Line_Status_Dt) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Line_Status_Dt) %>% 
+  summary()
+```
+
+#### Sku_Id
+Data Type Check / Conversion
+```{r}
+qvc_data %>% 
+  select(Sku_Id) %>% 
+  skim()
+
+qvc_data$Sku_Id <- as.character(qvc_data$Sku_Id)
+```
+
+```{r}
+qvc_data %>% 
+  select(Sku_Id) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Sku_Id) %>% 
+  summary()
+
+qvc_data %>% 
+  group_by(Sku_Id) %>%
+  tally() %>% 
+  mutate(Percent = round(n / nrow(qvc_data)*100, 3)) %>% 
+  arrange(desc(n)) %>% 
+  head(n = 10)
+```
+
+#### Shipped_Dt
+Data Type Check / Conversion
+```{r}
+qvc_data %>% 
+  select(Shipped_Dt) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Shipped_Dt) %>% 
+  summary()
+
+
+qvc_data %>% 
+  filter(is.na(Shipped_Dt)) %>% 
+  nrow() / nrow(qvc_data) * 100
+```
+
+Percentages
+```{r}
+#Percentage NA
+qvc_data %>% 
+  filter(is.na(Shipped_Dt)) %>% 
+  nrow() / nrow(qvc_data) * 100
+
+#Percentage 2017
+qvc_data %>% 
+  filter((Shipped_Dt < as.Date("2017-01-01"))) %>% 
+  nrow() / nrow(qvc_data) * 100
+```
+
+Histogram
+```{r}
+qvc_data %>% 
+  select(Shipped_Dt) %>% 
+  ggplot(mapping = aes(x = Shipped_Dt))+
+  geom_histogram()
+
+mean.POSIXlt(qvc_data$Shipped_Dt)
+
+mean.Date()
+
+```
+
+Mean Date
+```{r}
+qvc_data_Shipped_DT <- qvc_data %>% 
+  select(Shipped_Dt) %>% 
+  drop_na()
+
+mean.Date(as.list(qvc_data_Shipped_DT))
+
+mean.POSIXct(qvc_data_Shipped_DT)
+```
+
+
+#### Cancelled_Qty
+Data Type Check / Conversion
+```{r}
+qvc_data %>% 
+  select(Cancelled_Qty) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Cancelled_Qty) %>% 
+  summary()
+
+qvc_data %>% 
+  select(Cancelled_Qty) %>% 
+  describe()
+```
+
+#### Merchandise_Div_Desc
+Data Type Check / Conversion
+```{r}
+qvc_data %>% 
+  select(Merchandise_Div_Desc) %>% 
+  skim()
+
+qvc_data$Merchandise_Div_Desc <- as.factor(qvc_data$Merchandise_Div_Desc)
+```
+
+Stats
+```{r}
+qvc_data %>% 
+  select(Merchandise_Div_Desc) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Merchandise_Div_Desc) %>% 
+  summary()
+
+qvc_data %>% 
+  group_by(Merchandise_Div_Desc) %>%
+  count() %>% 
+  mutate(Percent = round(n / nrow(qvc_data)*100, 1)) %>% 
+  arrange(desc(n))
+```
+
+#### Merchandise_Dept_Desc
+Data Type Check / Conversion
+```{r}
+qvc_data %>% 
+  select(Merchandise_Dept_Desc) %>% 
+  skim()
+
+qvc_data$Merchandise_Dept_Desc <- as.factor(qvc_data$Merchandise_Dept_Desc)
+```
+
+Stats
+```{r}
+qvc_data %>% 
+  select(Merchandise_Dept_Desc) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Merchandise_Dept_Desc) %>% 
+  summary()
+
+qvc_data %>% 
+  group_by(Merchandise_Dept_Desc) %>%
+  count() %>% 
+  mutate(Percent = round(n / nrow(qvc_data)*100, 1)) %>% 
+  arrange(desc(n))
+```
+
+#### Merchandise - Compare
+```{r}
+qvc_data_merch_div <- qvc_data %>% 
+  group_by(Merchandise_Div_Desc) %>%
+  count() %>% 
+  mutate(Percent = round(n / nrow(qvc_data)*100, 1)) %>% 
+  arrange(desc(n))
+
+qvc_data_merch_dept <- qvc_data %>% 
+  group_by(Merchandise_Dept_Desc) %>%
+  count() %>% 
+  mutate(Percent = round(n / nrow(qvc_data)*100, 1)) %>% 
+  arrange(desc(n))
+
+cbind.fill(qvc_data_merch_div, qvc_data_merch_dept)
+```
+
+### Shipment_Status_Dt
+Data Type Check / Conversion
+```{r}
+qvc_data %>% 
+  select(Shipment_Status_Dt) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Shipment_Status_Dt) %>% 
+  summary()
+```
+
+
+### Rescheduled_Delivery_Dt
+Data Type Check / Conversion
+```{r}
+qvc_data %>% 
+  select(Rescheduled_Delivery_Dt) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Rescheduled_Delivery_Dt) %>% 
+  summary
+
+#Percentage NA
+qvc_data %>% 
+  filter(is.na(Rescheduled_Delivery_Dt)) %>% 
+  nrow() / nrow(qvc_data) * 100
+```
+
+#### Actual_Total_Package_Qty
+Data Type Check / Conversion
+```{r}
+qvc_data %>% 
+  select(Actual_Total_Package_Qty) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Actual_Total_Package_Qty) %>% 
+  summary()
+
+qvc_data %>% 
+  select(Actual_Total_Package_Qty) %>% 
+  describe()
+```
+
+Log Transformation Check
+```{r}
+#Log Transformation
+qvc_data %>% 
+  select(Actual_Total_Package_Qty) %>% 
+  mutate(Actual_Total_Package_Qty_log = log(Actual_Total_Package_Qty + 1)) %>% 
+  gather() %>% 
+  ggplot(mapping = aes(x = value, group = key)) +
+    geom_histogram(bins = 10) + 
+    facet_wrap(~ key, scales = "free")
+```
+
+#### SHIP_TO_STATE
+Data Type Check / Conversion
+```{r}
+qvc_data %>% 
+  select(SHIP_TO_STATE) %>% 
+  skim()
+
+qvc_data$Merchandise_Div_Desc <- as.factor(qvc_data$Merchandise_Div_Desc)
+```
+
+Stats
+```{r}
+qvc_data %>% 
+  select(SHIP_TO_STATE) %>% 
+  skim()
+
+qvc_data %>% 
+  select(SHIP_TO_STATE) %>% 
+  summary()
+
+qvc_data %>% 
+  select(SHIP_TO_STATE) %>% 
+  describe()
+
+qvc_data %>% 
+  group_by(SHIP_TO_STATE) %>%
+  count() %>% 
+  mutate(Percent = round(n / nrow(qvc_data)*100, 1)) %>% 
+  arrange(desc(n))
+```
+
+#### Zip Codes
+```{r}
+qvc_data %>% 
+  select(SHIP_TO_ZIP) %>% 
+  skim()
+
+qvc_data_zip <- qvc_data
+
+# Replace Dropped Leading Zeros
+qvc_data_zip$SHIP_TO_ZIP <- str_pad(string = qvc_data_zip$SHIP_TO_ZIP, 
+                                width = 5, 
+                                side = "left", 
+                                pad = "0")
+# Verify Change
+describe(qvc_data_clean_1.1$SHIP_TO_ZIP)
+
+```
+### Delivery_Confirmation_Dt
+```{r}
+qvc_data %>% 
+  select(Delivery_Confirmation_Dt) %>% 
+  skim()
+
+#Percent NA
+qvc_data %>% 
+  filter(is.na(Delivery_Confirmation_Dt)) %>% 
+  nrow() / nrow(qvc_data) * 100
+
+#Missing Delivery Date
+qvc_data_missing_delivery_dt <- qvc_data %>% 
+  filter(is.na(Delivery_Confirmation_Dt)) %>% 
+  mutate(Assigned_Dc_Id = as.character(Assigned_Dc_Id))
+
+#Not missing delivery date
+qvc_data_NOT_missing_delivery_dt <- qvc_data %>% 
+  filter(!is.na(Delivery_Confirmation_Dt)) %>% 
+  mutate(Assigned_Dc_Id = as.character(Assigned_Dc_Id))
+
+skim(qvc_data_missing_delivery_dt)
+
+#What are the order status for missing delivery dates
+qvc_data_missing_delivery_dt %>% 
+  group_by(Line_Status_Cd) %>% 
+  count() 
+
+qvc_data_missing_delivery_dt
+```
+
+Missing Delivery Date Visuals
+```{r}
+#What are the order status for missing delivery dates
+qvc_data_missing_delivery_dt %>% 
+  group_by( Line_Status_Cd) %>% 
+  count() %>% 
+  arrange(desc(n)) %>%
+  mutate(n_percent = n/nrow(qvc_data_missing_delivery_dt)*100) %>% 
+  ggplot(mapping = aes(x = Line_Status_Cd, y = n_percent)) +
+  geom_col()
+
+#What are the order status for missing delivery dates
+qvc_data_NOT_missing_delivery_dt %>% 
+  group_by( Line_Status_Cd) %>% 
+  count() %>% 
+  arrange(desc(n)) %>% 
+  mutate(n_percent = n/nrow(qvc_data_NOT_missing_delivery_dt)*100) %>% 
+  ggplot(mapping = aes(x = Line_Status_Cd, y = n_percent)) +
+  geom_col()
+```
+
+#### Package_Cnt
+```{r}
+qvc_data %>% 
+  select(Package_Cnt) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Package_Cnt) %>% 
+  summary()
+
+qvc_data %>% 
+  select(Package_Cnt) %>% 
+  describe()
+
+#Log Transformation
+qvc_data %>% 
+  select(Package_Cnt) %>% 
+  mutate(log_Package_Cnt = log(Package_Cnt + 1)) %>% 
+  gather() %>% 
+  ggplot(mapping = aes(x = value, group = key)) +
+    geom_histogram(bins = 10) + 
+    facet_wrap(~ key, scales = "free")
+```
+
+### Package_Scan_Dttm
+```{r}
+qvc_data %>% 
+  select(Package_Scan_Dttm) %>% 
+  skim()
+```
+
+### Carrier_Used_Tracking_Id
+```{r}
+qvc_data %>% 
+  select(Carrier_Used_Tracking_Id) %>%
+  mutate(Carrier_Used_Tracking_Id = as.character(Carrier_Used_Tracking_Id)) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Carrier_Used_Tracking_Id) %>%
+  mutate(Carrier_Used_Tracking_Id = as.character(Carrier_Used_Tracking_Id)) %>% 
+  summary()
+```
+
+### Product_Id
+```{r}
+qvc_data %>% 
+  select(Product_Id) %>%
+  mutate(Product_Id = as.character(Product_Id)) %>% 
+  skim()
+
+qvc_data %>% 
+  select(Product_Id) %>%
+  mutate(Product_Id = as.character(Product_Id)) %>% 
+  summary()
+
+qvc_data %>% 
+  select(Product_Id) %>%
+  mutate(Product_Id = as.character(Product_Id)) %>% 
+  head()
+```
+
+```{r}
+qvc_data %>% 
+  mutate(Sales_Order_Nbr = as.character(Sales_Order_Nbr)) %>% 
+  select(Sales_Order_Nbr) %>% 
+  group_by(Sales_Order_Nbr) %>% 
+  tally() %>% 
+  arrange(desc(n))
+```
+

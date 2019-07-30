@@ -1,0 +1,186 @@
+---
+title: "Question 2 - Association Mining"
+author: "Evan Canfield"
+date: "7/25/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Library Calls
+
+The following libraries are used to develop the data frames for Question 1 of the Group Project
+
+```{r library, warning=FALSE, message=FALSE}
+if(!require(pacman)){install.packages("pacman")}
+library(pacman)
+
+p_load(  
+  arules,
+  arulesViz,
+  caTools,
+  Hmisc, 
+  kableExtra,
+  plotly,
+  skimr,
+  tidyverse
+)
+```
+
+# Data Import
+```{r cache=TRUE}
+#Processed QVC Data Frame
+qvc_data <- readRDS(file = "./data/output/Group Project Dataset/qvc_data_compiled_new_variables.rds")
+```
+
+## Check Data Import
+### QVC Data
+```{r}
+glimpse(qvc_data)
+```
+
+# Subset Data For Quicker Process Times
+```{r}
+# set.seed(101)
+# 
+# split_ratio <- 0.30
+# 
+# sample <- sample.split(Y = qvc_data$Sales_Order_Nbr
+#                        ,SplitRatio =  split_ratio)
+# 
+# qvc_data_sample = subset(qvc_data, sample == TRUE)
+```
+
+```{r}
+# qvc_data <- qvc_data_sample
+```
+
+
+
+# Select Essential Variables
+```{r}
+qvc_data_am <- qvc_data %>% 
+  select(Sales_Order_Nbr,
+         Product_Id)
+
+glimpse(qvc_data_am)
+```
+
+
+# For Checking - Item Counts
+```{r}
+product_counts <- qvc_data_am %>% 
+  group_by(Product_Id) %>% 
+  summarise(total = n()) %>% 
+  arrange(-total) %>% 
+  filter(total > 1)
+
+head(product_counts)
+```
+
+
+# Export / Import Transactions
+```{r}
+write.csv(x = qvc_data_am
+        , file = "./data/output/q2_association_mining/qvc_data_sales-and-prod.csv"
+        , row.names = FALSE)
+
+qvc_sales_trans <- read.transactions(file = "./data/output/q2_association_mining/qvc_data_sales-and-prod.csv"
+                  , format = "single"
+                  , cols = c(1,2)
+                  , sep = ","
+                  , rm.duplicates = TRUE
+                  , skip = 1)
+```
+
+# Inspect
+```{r}
+summary(qvc_sales_trans)
+
+qvc_sales_trans@data
+
+str(qvc_sales_trans)
+
+qvc_sales_trans@itemInfo$labels[1:20]
+
+qvc_sales_trans@data@p
+```
+
+# Apriori Analysis
+## Frequent Sets
+```{r}
+frqsets.qvc <- apriori(data = qvc_sales_trans
+                       , parameter=list(minlen=2
+                                        , supp=1e-5
+                                        , conf=0.5
+                                        , target="frequent itemsets")
+                       , control = list(verbose = FALSE))
+
+frqsets.qvc
+
+frqsets.qvc_df <- inspect(frqsets.qvc)
+
+frqsets.qvc_df
+
+ frqsets.qvc_df %>% 
+  arrange(-count) %>% 
+  head(10) %>% 
+  kable() %>% 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")
+                , full_width = FALSE)
+
+```
+
+## Rules
+```{r}
+rules.qvc <- apriori(data = qvc_sales_trans
+                     , control = list(verbose=TRUE)
+                     , parameter = list(minlen=2
+                                        , supp = 1e-7
+                                        , conf=0.5)) 
+
+summary(rules.qvc)
+
+inspect(rules.qvc)
+```
+
+# Redundant Rules
+```{r}
+redundant <- which (colSums(is.subset(rules.qvc, rules.qvc)) > 1)
+```
+
+## Prune Redundant Rules
+```{r}
+rules.qvc.pruned <- rules.qvc[-redundant]
+
+rules.qvc.pruned
+```
+
+```{r}
+subrules2 <- head(sort(rules.qvc.pruned, by="lift"), 10)
+
+plot(subrules2, method="graph")
+```
+
+# Create Rule Data Frame
+```{r}
+rules.qvc_df <- data.frame(
+  lhs = labels(lhs(rules.qvc.pruned)),
+  rhs = labels(rhs(rules.qvc.pruned)),
+  rules.qvc.pruned@quality
+)
+
+rules.qvc_df_10 <- rules.qvc_df %>% 
+  arrange(-lift) %>% 
+  mutate(confidence = round(confidence,3),
+         lift = round(lift,0)) %>% 
+  head(10)
+
+rules.qvc_df_10 %>% 
+  kable() %>% 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")
+                , full_width = FALSE)
+
+```

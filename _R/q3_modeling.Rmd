@@ -1,0 +1,200 @@
+---
+title: "Question 3 - Exploratory"
+author: "Evan Canfield"
+date: "7/26/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Library Calls
+
+The following libraries are used to develop the data frames for Question 1 of the Group Project
+
+```{r library, warning=FALSE, message=FALSE}
+if(!require(pacman)){install.packages("pacman")}
+library(pacman)
+
+p_load(  
+  caTools,
+  caret,
+  corrplot, 
+  Hmisc, 
+  geosphere,
+  lubridate,
+  randomForest,
+  ROCR,
+  skimr,
+  stringr,
+  tidyverse
+)
+```
+
+# Data Import
+```{r cache=TRUE}
+#Processed QVC Data Frame - Sample
+qvc_data <- read.csv(file = "./data/output/q3_modeling/model_dataset_with_labels.csv"
+                            , stringsAsFactors = FALSE)
+
+qvc_data_complete <- readRDS(file = "./data/output/Group Project Dataset/qvc_data_compiled_new_variables.rds")
+```
+
+```{r}
+glimpse(qvc_data_complete)
+```
+
+
+```{r}
+qvc_data <- qvc_data %>% 
+  select(-X)
+```
+
+
+# Determine Fulfillment Days Mean / Median
+```{r}
+median(qvc_data$Fulfillment_Days)
+
+mean(qvc_data$Fulfillment_Days)
+
+ggplot(data = qvc_data
+       , mapping = aes(log(Fulfillment_Days, 2))) +
+  geom_density()
+```
+
+ 
+# Logistic Regression- Drop Variables
+# And Filter AK, HI, PR
+```{r}
+
+state_list <- c("PR", "AK", "HI")
+
+qvc_data_1 <- qvc_data %>% 
+  filter(!state_dest %in% state_list) %>% 
+  select(Repeat,
+         Total_Line_Amt,
+         Unit_Price_Amt, 
+         Ordered_Qty,
+         Shipped_Qty,
+         Actual_Total_Package_Qty,
+         Merchandise_Dept_Desc,
+         Rescheduled:Distance
+         )
+```
+
+# Develop Early / Late Binary
+```{r}
+qvc_data_2 <- qvc_data_1 %>% 
+  mutate(Late = if_else(Fulfillment_Days >  7, 1, 0))
+```
+
+
+# Data Type Conversion
+```{r}
+qvc_data_3 <- qvc_data_2 %>% 
+  mutate(
+    Merchandise_Dept_Desc = as.factor(Merchandise_Dept_Desc),
+    Repeat = as.factor(Repeat),
+    Rescheduled = as.factor(Rescheduled)
+  )
+```
+
+```{r}
+glimpse(qvc_data_3)
+```
+
+# Histograms
+```{r}
+ qvc_data_3 %>%
+   keep(is.numeric) %>% 
+   gather() %>% 
+  ggplot(aes(value)) +
+     facet_wrap(~ key, scales = "free") +
+     geom_histogram(bins = 50)
+```
+
+# Correlation Matrx
+```{r}
+ qvc_data_3_num <- qvc_data_3 %>%
+   keep(is.numeric)
+
+qvc_cm <- cor(qvc_data_3_num)
+
+corrplot(qvc_cm)
+
+```
+
+# Processing
+Drop Ordered / Shipped, Days, Unit Price, Log Transform Total Line Amount
+```{r}
+qvc_data_4 <- qvc_data_3 %>% 
+  select(  -Unit_Price_Amt
+         , -Ordered_Qty
+         , -Shipped_Qty
+         )
+```
+
+
+# Subset
+```{r}
+# Data partition
+set.seed(101) 
+
+sample = sample.split(qvc_data_4$Repeat, SplitRatio = .70)
+df.train = subset(qvc_data_4, sample == TRUE)
+df.valid = subset(qvc_data_4, sample == FALSE)
+
+```
+
+
+# Baseline
+```{r}
+model.lr_baseline <- glm(formula = Repeat ~ .
+    , binomial(link='logit')
+    , data = df.train)
+
+summary(model.lr_baseline)
+
+exp(model.lr_baseline$coefficients)
+```
+
+
+```{r}
+#Prediction Output - Baseline Logistic Regression
+predict_reg <- predict(model.lr_baseline 
+                          , newdata = df.valid 
+                          , type='response')
+
+#Convert to Dataframe
+predict_reg <- data.frame(Probability = predict_reg, row.names = NULL)
+
+#Create Predicition Binary Based on Threshold
+threshold <- 0.5
+
+predict_reg <- predict_reg %>% 
+  mutate(Results = if_else(Probability >= threshold, 1, 0)) %>%
+  mutate(Results = as.factor(Results)) %>% 
+  mutate(Known_Valid = df.valid$Repeat) %>% 
+  mutate(Model = "Logistic Regression")
+
+#Confusion Matrix
+confusionMatrix(data = predict_reg$Results
+                , reference =  df.valid$Repeat)
+```
+
+#### ROC Curve
+```{r}
+pred_reg <- prediction(predict_reg$Probability, df.valid$Repeat)
+
+perf_reg <- performance(pred_reg, "tpr", "fpr")
+plot(perf_reg)
+```
+
+#### AUC
+```{r}
+# Calculate and print AUC value
+auc_reg <- performance(pred_reg, measure="auc")
+auc_reg <- auc_reg@y.values[[1]]
+print(paste("AUC for the regression model is:",  round(auc_reg,3)))
+```
