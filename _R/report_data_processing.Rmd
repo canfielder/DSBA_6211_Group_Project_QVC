@@ -59,21 +59,21 @@ During upload all blank values were treated as NA.
 
 
 ```{r data import, cache=TRUE,warning=FALSE}
-qvc_data_1 <- read_xlsx("./data/QVC Data 1.xlsx", na = c("NA", ""))
+qvc_data_1 <- read_xlsx("./data_R/QVC Data 1.xlsx", na = c("NA", ""))
 
-qvc_data_2 <- read_xlsx("./data/QVC Data 2.xlsx", na = c("NA", ""))
+qvc_data_2 <- read_xlsx("./data_R/QVC Data 2.xlsx", na = c("NA", ""))
 
-qvc_data_3 <- read_xlsx("./data/QVC Data 3.xlsx", na = c("NA", ""))
+qvc_data_3 <- read_xlsx("./data_R/QVC Data 3.xlsx", na = c("NA", ""))
 
-qvc_distctr <- read_xlsx("./data/QVCdist_ctr.xlsx", na = c("NA", "")) 
+qvc_distctr <- read_xlsx("./data_R/QVCdist_ctr.xlsx", na = c("NA", "")) 
 
-qvc_orderstatustype <- read_xlsx("./data/QVCorderstatustype.xlsx", na = c("NA", "")) 
+qvc_orderstatustype <- read_xlsx("./data_R/QVCorderstatustype.xlsx", na = c("NA", ""))
 ```
 
 State population data was provided by 2018 National and State Population Estimates from the US Census Bureau. [https://www.census.gov/newsroom/press-kits/2018/pop-estimates-national-state.html](https://www.census.gov/newsroom/press-kits/2018/pop-estimates-national-state.html). The data set form was then processed so that only the state code, state (and state equivalents), and 2018 population estimate were in the file used in this analysis.
 
 ```{r}
-us_census_2018 <- read.csv("./data/us_census_population_change_2018_reformatted.csv")
+us_census_2018 <- read.csv("./data_R/us_census_population_change_2018_reformatted.csv")
 ```
 
 The **zip_codes** data set from the **noncensus** package was used to provide city, state, latitude, and longitude data for the QVC warehouse and the package destination based on the provided zip codes. Additionally, the **zip_codes** data set provided the Federal Information Processing Standard (FIPS) code for each destination zip code. FIPS codes are unique identifiers for US counties (and county equivalents).   
@@ -411,10 +411,10 @@ In order to perform Association Mining with the **Arules** package, the input da
 
 ```{r export / import, cache=TRUE}
 write.csv(x = qvc_data_am
-        , file = "./data/output/q2_association_mining/qvc_data_sales-and-prod.csv"
+        , file = "./data_R/output/q2_association_mining/qvc_data_sales-and-prod.csv"
         , row.names = FALSE)
 
-qvc_sales_trans <- read.transactions(file = "./data/output/q2_association_mining/qvc_data_sales-and-prod.csv"
+qvc_sales_trans <- read.transactions(file = "./data_R/output/q2_association_mining/qvc_data_sales-and-prod.csv"
                   , format = "single"
                   , cols = c(1,2)
                   , sep = ","

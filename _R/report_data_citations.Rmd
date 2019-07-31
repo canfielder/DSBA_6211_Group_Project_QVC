@@ -1,0 +1,58 @@
+---
+title: "Final Report - Citations"
+author: "Evan Canfield"
+date: "7/30/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r }
+if(!require(pacman)){install.packages("pacman")}
+library(pacman)
+
+p_load(  
+  arules,
+  arulesViz,
+  geosphere,
+  lubridate,
+  noncensus,
+  randomForest,
+  readxl,
+  tidycensus,
+  tidyverse,
+  stringr
+)
+```
+
+# Citation - R
+```{r}
+citation()
+```
+
+# Package List
+```{r}
+  package_loaded <- 
+  c("arules",
+  "arulesViz",
+  "geosphere",
+  "lubridate",
+  "noncensus",
+  "randomForest",
+  "readxl",
+  "tidycensus",
+  "tidyverse",
+  "stringr")
+```
+
+
+# Packages Citation
+```{r}
+purrr::map(package_loaded, citation)
+
+```
+
