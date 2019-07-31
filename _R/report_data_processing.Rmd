@@ -72,8 +72,14 @@ qvc_orderstatustype <- read_xlsx("./data_R/input/QVCorderstatustype.xlsx", na = 
 
 State population data was provided by 2018 National and State Population Estimates from the US Census Bureau. [https://www.census.gov/newsroom/press-kits/2018/pop-estimates-national-state.html](https://www.census.gov/newsroom/press-kits/2018/pop-estimates-national-state.html). The data set form was then processed so that only the state code, state (and state equivalents), and 2018 population estimate were in the file used in this analysis.
 
-```{r}
+```{r census upload}
 us_census_2018 <- read.csv("./data_R/input/us_census_population_change_2018_reformatted.csv")
+```
+
+A future step involves calculating the distance from shipping origin to destination. To expidite this process, a database of all origin and destination pairs, and corresponding distances between the two, was generated. Further discussion of the calcaultion of distance and the development of this database is occurs at a later step.
+
+```{r zip code distance upload}
+zip_code_dist_database <- readRDS("./data_R/output/Group Project Dataset/zip_code_dist_database.RDS")
 ```
 
 The **zip_codes** data set from the **noncensus** package was used to provide city, state, latitude, and longitude data for the QVC warehouse and the package destination based on the provided zip codes. Additionally, the **zip_codes** data set provided the Federal Information Processing Standard (FIPS) code for each destination zip code. FIPS codes are unique identifiers for US counties (and county equivalents).   
@@ -208,7 +214,7 @@ qvc_data <- qvc_data %>%
          Actual_Total_Package_Qty, Merchandise_Dept_Desc, Order_Dt,
          Shipped_Dt, Rescheduled_Delivery_Dt, Delivery_Confirmation_Dt, Source_Ship_Warehouse_Nbr,
          city_distctr, state_distctr, zip_distctr, lat_distctr, lon_distctr, zip_distctr,
-         city_dest, state_dest, lat_dest, lon_dest, zip_dest, fips_dest
+         city_dest, state_dest, zip_dest, lat_dest, lon_dest, fips_dest
          )
 ```
 
@@ -219,6 +225,7 @@ Several new variables were developed for use in analyzing the provided QVC data.
 
 ## Rescheduled
 The **Rescheduled_Delivery_Dt** variable has a high missing data rate, with 40% of the data observations recorded as NA. The description of this variable indicates that a value would only be recorded if the package was rescheduled, so a shipment that was not rescheduled would be indicated by NA. It was assumed that all of the NA values were shipments that were not rescheduled. Using this assumption, a new binary variable was developed, **Rescheduled**. The binary indicates whether a shipment was rescheduled (1) or was not (0). The **Rescheduled_Delivery_Dt** variable was then dropped. 
+
 ```{r rescheduled}
 qvc_data <- qvc_data %>% 
   mutate(Rescheduled = if_else(is.na(Rescheduled_Delivery_Dt), 0, 1)) %>% 
@@ -236,16 +243,31 @@ qvc_data <- qvc_data %>%
 ```
 
 ## Distance
-The distance between distribution center and shipping destination was calculated for each observation. The location of the distribution center and shipping destination was approximated as the center latitude and longitude, as provide by the **zip_codes** data set,  of the provided zip codes of the distribution center and shipping destination. The **geosphere** package was used to calculate the distance, using the latitude and longitude of the distribution center and shipping destination as the starting and end point, and using the Haversine method to account for the curvature of the earth. The function distm() returns the distance in meters, so a conversion factor of 0.000621371 miles/meter was also used in order to express the distance in miles.
+The distance between distribution center and shipping destination was calculated for each observation. The location of the distribution center and shipping destination was approximated as the central latitude and longitude of the zip codes of those locations, as provide by the **zip_codes** data set.  The **geosphere** package was used to calculate the distance, using the latitude and longitude of the distribution center and shipping destination as the starting and end point, and using the Haversine method to account for the curvature of the earth. The function distm() returns the distance in meters, so a conversion factor of 0.000621371 miles/meter was also used in order to express the distance in miles.
 
-```{r distance, cache= TRUE}
+The calculation of distance is a computationally taxing process. To minimize the process time of this step on possible future runs of the code, a database of origin and destination zip codes was developed, with the distance calculated between the points.
+
+```{r zip code distance database}
+# #Zip Code Distance Database
+# zip_code_dist_database <- qvc_data %>%
+#   select(zip_distctr:lon_distctr, zip_dest:lon_dest) %>%
+#   distinct() %>%
+#   rowwise() %>%
+#   mutate(Distance = round((distm(x = c(lon_distctr, lat_distctr)
+#                           , y = c(lon_dest, lat_dest)
+#                           , fun = distHaversine) * 0.000621371), 0)
+#   ) %>%
+#   ungroup() %>% 
+#   select(zip_distctr, zip_dest, Distance)
+# 
+# saveRDS(object = zip_code_dist_database
+#         , file = "./data_R/output/Group Project Dataset/zip_code_dist_database.RDS")
+```
+
+```{r distance}
 qvc_data <- qvc_data %>% 
-  rowwise() %>% 
-  mutate(Distance = round((distm(x = c(lon_distctr, lat_distctr)
-                          , y = c(lon_dest, lat_dest)
-                          , fun = distHaversine) * 0.000621371), 0)
-  ) %>% 
-  ungroup()
+  left_join(zip_code_dist_database
+            , by = c("zip_distctr",  "zip_dest"))
 ```
 
 # Further Data Cleaning
@@ -285,7 +307,7 @@ qvc_data <- qvc_data %>%
   filter(Fulfillment_Days >= 1)
 ```
 
-With the above data cleaning steps completed, the final data set to be used in the analyses to answer the project questions is complete. 
+With the data processed and cleaned, the resulting data set is starting input for use in the analysis used for the questions posed in this project.
 
 # Additional Data
 ## Shape File
@@ -451,6 +473,5 @@ rules.qvc.pruned <- rules.qvc[-redundant]
 *Do customers that receive their product sooner purchase more than customers with longer delivery times?*
 
 ```{r}
-
 ```
 
