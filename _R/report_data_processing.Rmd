@@ -11,8 +11,9 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# Data Processing
 
-# R Library Packages
+## R Library Packages
 
 Data processing was primarily done through R. The following libraries were used to process the provided data.
 
@@ -35,7 +36,7 @@ p_load(
 ```
 
 
-# Data Import
+## Data Import
 
 The following were the provided files for Option 2 of the DSBA 6211 Group Project: 
 
@@ -93,8 +94,8 @@ The **fips_codes** data set from the **tidycensus** package was used to provide 
 data("fips_codes")
 ```
 
-# Processing The Data
-## Creating The Raw Data File
+## Processing The Data
+### Creating The Raw Data File
 Once uploaded the QVC sales data was combined into a single data frame. 
 ```{r bind qvc data files, cache=TRUE, warning=FALSE}
  qvc_data <- qvc_data_1 %>% 
@@ -111,17 +112,33 @@ qvc_data <- qvc_data %>%
 
 After studying the project questions and the provided data, the following variables were determined to not be relevant to the analysis were then dropped from the data frame. Note that the information from **SHIP_TO_STATE** is important to the analyzing the data, but will be repopulated through a different data source during a later step in the process.
 ```{r drop variables}
-drop_variables = c(   "Sales_Order_Line_Nbr", "Order_Type_Cd", "Shipping_Priority_Ind", "Line_Status_Dt", "Skn_Id", "Sku_Id", "Color_Desc","Size_Desc",
-                      "Assigned_Dc_Id", "Cancelled_Qty", "Merchandise_Div_Desc", "Carrier_Used_Tracking_Id", "Shipment_Status_Dt", "Pickup_Dt",
-                      "Scheduled_Delivery_Dt", "Package_Scan_Dttm", "Package_Cnt", "SHIP_TO_CITY", "SHIP_TO_STATE")
+drop_variables = c(   
+  "Sales_Order_Line_Nbr",
+  "Order_Type_Cd",
+  "Shipping_Priority_Ind",
+  "Line_Status_Dt",
+  "Skn_Id", "Sku_Id",
+  "Color_Desc","Size_Desc",
+  "Assigned_Dc_Id",
+  "Cancelled_Qty",
+  "Merchandise_Div_Desc",
+  "Carrier_Used_Tracking_Id",
+  "Shipment_Status_Dt",
+  "Pickup_Dt",
+  "Scheduled_Delivery_Dt",
+  "Package_Scan_Dttm",
+  "Package_Cnt",
+  "SHIP_TO_CITY",
+  "SHIP_TO_STATE"
+  )
 qvc_data <- qvc_data %>% 
   select(-drop_variables)
 ```
 
-## Modifying the Data 
+### Modifying the Data 
 As the provided data was in *.XLSX* form not all variables had the correct data types after upload. The following modifications were necessary.
 
-### Changing Data Types
+#### Changing Data Types
 The variable **Merchandise_Dept_Desc** was imported as a character, but functions as a factor. **Sales_Order_Nbr **,  **Party_Id **,  **Product_Id **, and  **Package_Id ** are all identification codes and although are comprised a numbers, these variables function as a character string.
 ```{r mutate data types}
 qvc_data <- qvc_data %>% 
@@ -134,7 +151,7 @@ qvc_data <- qvc_data %>%
     )
 ```
 
-### Leading Zeros
+#### Leading Zeros
 In several instances the leading zeros for data employing unique numerical codes were dropped during upload. The variables zip_dest and Source_Ship_Warehouse_Nbr are both numeric identifiers, zip_dest five digit, and Source_Ship_Warehouse_Nbr four digit. During uploaded from the *.XLSX* file, these variables were considered numeric and any leading zeros in the code were dropped. To properly use these variables the leading zeros need to be reinserted, and the variables converted to character type, in both the QVC Data and QVC Distribution Center data sets. Additionally, leading zeros for FIPS code from the **zip_codes** were also dropped, and therefore needed to be reinserted.
 ```{r Leading Zeros }
 # Source_Ship_Warehouse_Nbr - QVC Data
@@ -164,7 +181,7 @@ zip_codes$fips  <- str_pad(string = zip_codes$fips,
 
 ```
 
-## Connecting Data Sets
+### Connecting Data Sets
 The data set was then combined with two other data sets, the QVC Distribution Center data and the **zip_codes** data set. Joining with the  QVC Distribution Center data provided further distribution center data for each sales item. 
 ```{r join distribution center data set}
 qvc_data <- qvc_data %>% 
@@ -219,11 +236,11 @@ qvc_data <- qvc_data %>%
 ```
 
 
-# Developing New Variables
+## New Variables
 
 Several new variables were developed for use in analyzing the provided QVC data. 
 
-## Rescheduled
+### Rescheduled
 The **Rescheduled_Delivery_Dt** variable has a high missing data rate, with 40% of the data observations recorded as NA. The description of this variable indicates that a value would only be recorded if the package was rescheduled, so a shipment that was not rescheduled would be indicated by NA. It was assumed that all of the NA values were shipments that were not rescheduled. Using this assumption, a new binary variable was developed, **Rescheduled**. The binary indicates whether a shipment was rescheduled (1) or was not (0). The **Rescheduled_Delivery_Dt** variable was then dropped. 
 
 ```{r rescheduled}
@@ -232,7 +249,7 @@ qvc_data <- qvc_data %>%
   select(-Rescheduled_Delivery_Dt)
 ```
 
-## Fulfillment_Days
+### Fulfillment_Days
 The variable **Fulfillment_Days** is the length of time, in days, between **Order_Dt** and **Delivery_Confirmation_Dt** . The span between **Shipped_Dt** and **Delivery_Confirmation_Dt** was initially considered as well, but after inspection, quality issues regarding the **Shipped_Dt** values lead to the decision not to use **Shipped_Dt**. The span of time between dates was calculated, in part, using the **lubridate** package.
 ```{r fullfilment time}
 qvc_data <- qvc_data %>% 
@@ -242,7 +259,7 @@ qvc_data <- qvc_data %>%
         )
 ```
 
-## Distance
+### Distance
 The distance between distribution center and shipping destination was calculated for each observation. The location of the distribution center and shipping destination was approximated as the central latitude and longitude of the zip codes of those locations, as provide by the **zip_codes** data set.  The **geosphere** package was used to calculate the distance, using the latitude and longitude of the distribution center and shipping destination as the starting and end point, and using the Haversine method to account for the curvature of the earth. The function distm() returns the distance in meters, so a conversion factor of 0.000621371 miles/meter was also used in order to express the distance in miles.
 
 The calculation of distance is a computationally taxing process. To minimize the process time of this step on possible future runs of the code, a database of origin and destination zip codes was developed, with the distance calculated between the points.
@@ -257,7 +274,7 @@ The calculation of distance is a computationally taxing process. To minimize the
 #                           , y = c(lon_dest, lat_dest)
 #                           , fun = distHaversine) * 0.000621371), 0)
 #   ) %>%
-#   ungroup() %>% 
+#   ungroup() %>%
 #   select(zip_distctr, zip_dest, Distance)
 # 
 # saveRDS(object = zip_code_dist_database
@@ -270,7 +287,7 @@ qvc_data <- qvc_data %>%
             , by = c("zip_distctr",  "zip_dest"))
 ```
 
-# Further Data Cleaning
+## Data Cleaning
 There are currently missing values in the following variables:
 
 * **Shipped_Dt**
@@ -309,11 +326,11 @@ qvc_data <- qvc_data %>%
 
 With the data processed and cleaned, the resulting data set is starting input for use in the analysis used for the questions posed in this project.
 
-# Additional Data
-## Shape File
+## Additional Data
+### Shape File
 For Question 1, one of the visuals created in Tableau was a county choropleth based on total sales in each county within California, Texas, and Florida. While Tableau is able to plot state based data by default, additional information is required to plot county level data. The county level shape files were provided by the US Census Bureau through the 2018 Tiger/Lines Shape File [https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.2018.html] (https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.2018.html).
 
-## State Data Frame
+### State Information
 For additional contextual information, a data set of information on the US states was developed based on available R data sets, with some modification. 
 ```{r state data frame}
 # Develop data frame of state name, abbreviations, regions, and dvisions
@@ -342,8 +359,7 @@ state_df_PR <- data.frame( State = "Puerto Rico", Abb = "PR", Region = "Southeas
 state_df <- rbind(state_df, state_df_DC, state_df_PR)
 ```
 
-
-# Question 1
+## Question 1
 *Does the current distribution network maximize customer penetration (spend)? If not, what should QVC do to increase customer penetration with the current distribution network?*
 
 Not all of the variables included in the main data set are required for Question 1. Therefore, the unnecessary variables are dropped. The following data set was used for all state based Tableau visualizations.
@@ -356,10 +372,14 @@ qvc_data_Q1_state <- qvc_data %>%
          Merchandise_Dept_Desc,
          Source_Ship_Warehouse_Nbr:Distance,
          -Rescheduled )
+
+write.csv(x = qvc_data_Q1_state, file = "./data_R/output/q1_tableau/qvc_data_q1.csv", row.names = FALSE)
+
+saveRDS(object = qvc_data_Q1_state, file = "./data_R/output/q1_tableau/qvc_data_q1.rds")
 ```
 
 
-## County Level Visualizations
+### County Level Visualizations
 For county level visualizations, the calculation of total sales by FIPS code was necessary. Currently the QVC data set only has FIPS code information for areas where a purchase was shipped to (**fips_dest**). If a county visualization was done only using these FIPS values, any county where no purchases were made would not be present in the data, and any subsequent visualization would should a blank space on the map. 
 
 In order to avoid a map with blank spaces, a full list of US FIPS codes is right-joined to the QVC sales data set, ensuring all FIPS code are included in the resultant data set. All FIPS codes in the full list of FIPS codes which do not have a corresponding FIPS code in the sales data set will result in NAs. All NAs are then replaced by 0, indicating no sales were made in those FIPS regions.
@@ -384,7 +404,7 @@ qvc_data_Q1_FIPS <- qvc_sales_by_fips %>%
   mutate(Total_Line_Amt = coalesce(Total_Line_Amt, 0))
 ```
 
-## Sales / Population Linear Regression
+### Sales / Population Linear Regression
 In analyzing the relationship between sales within a state and the state's population, a linear regression analysis was performed. A new data set focused on sales by state was necessary to perform the regression. The data set used to perform the regression needed to include each state's population and total sales.
 
 First, it was required to join the US Census data set to the state information data set. This was to ensure the census data had the correct information to successfully be joined to the sales data. Additionally, the population variable was renamed to **Population_2018** for easier comprehension. 
@@ -417,7 +437,7 @@ lm(formula = Sales_Per_State  ~ Population_2018
     , data = qvc_data_stat_pop)
 ```
 
-# Question 2
+## Question 2
 *Are there specific products or product categories that should be located in specific distribution centers?*
 
 Analysis of product categories was performed using the final, complete data set, **qvc_data**, in Tableau.
@@ -431,7 +451,7 @@ qvc_data_am <- qvc_data %>%
 
 In order to perform Association Mining with the **Arules** package, the input data needs to be in the form of a transactions object, not a standard data frame. To convert the data frame to a transaction object, the data frame is exported as a *.csv* file and then re-imported, using the read.transactions function.
 
-```{r export / import, cache=TRUE}
+```{r export - import}
 write.csv(x = qvc_data_am
         , file = "./data_R/output/q2_association_mining/qvc_data_sales-and-prod.csv"
         , row.names = FALSE)
@@ -446,6 +466,7 @@ qvc_sales_trans <- read.transactions(file = "./data_R/output/q2_association_mini
 
 With the data now in a transactions object form, frequent sets analysis and rules mining analysis are performed.
 
+### Frequent Sets
 ```{r frequent sets}
 # Frequent Sets
 frqsets.qvc <- apriori(data = qvc_sales_trans
@@ -469,7 +490,7 @@ redundant <- which (colSums(is.subset(rules.qvc, rules.qvc)) > 1)
 rules.qvc.pruned <- rules.qvc[-redundant]
 ```
 
-# Question 3
+## Question 3
 *Do customers that receive their product sooner purchase more than customers with longer delivery times?*
 
 ```{r}
