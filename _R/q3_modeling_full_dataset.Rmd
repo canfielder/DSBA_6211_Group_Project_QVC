@@ -32,7 +32,7 @@ p_load(
 # Data Import
 ```{r cache=TRUE}
 #Processed QVC Data Frame
-qvc_data_all <- readRDS(file = "./data/output/Group Project Dataset/qvc_data_compiled_new_variables.rds")
+qvc_data_all <- readRDS(file = "./data_R/output/Group Project Dataset/qvc_data_compiled_new_variables_sample.rds")
 ```
 
 

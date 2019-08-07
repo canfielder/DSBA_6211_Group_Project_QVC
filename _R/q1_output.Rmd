@@ -32,9 +32,9 @@ p_load(
 # Data Import
 ```{r cache=TRUE}
 #Processed QVC Data Frame
-qvc_data <- readRDS(file = "./data/output/q1_tableau/qvc_data_q1.rds")
+qvc_data <- readRDS(file = "./data_R/output/q1_tableau/qvc_data_q1.rds")
 
-state_df <- read.csv("./data/output/q1_tableau/state_info.csv")
+state_df <- read.csv("./data_R/output/q1_tableau/state_info.csv")
 ```
 
 ```{r}
@@ -121,6 +121,53 @@ qvc_sales_corrm_3
 
 corrplot(qvc_sales_corrm_3, type = "upper", order = "hclust", 
          tl.col = "black", tl.srt = 45)
+
+```
+
+# Percent Total By State
+```{r}
+glimpse(qvc_data_sales_state_pop)
+```
+
+```{r}
+# Population, Sales Table
+
+sales_pop_percent_table <- qvc_data_sales_state_pop %>% 
+  select(State, Population_2018, Sales_Per_State) %>% 
+  mutate(Percent_Sales = round(Sales_Per_State / sum(qvc_data_sales_state_pop$Sales_Per_State) * 100, 2)) %>% 
+  mutate(Rank = rank(Sales_Per_State)) %>% 
+  arrange(-Rank)
+
+sales_pop_percent_table
+
+write.csv(x = sales_pop_percent_table
+          , file = "./data_R/output/q1_tableau/Sales_Population_Percent_By_State.csv"
+          , row.names = FALSE)
+```
+
+Calculate Total Shipped By DC
+```{r}
+# qvc_dc_freq <- qvc_data %>% 
+#   group_by(Source_Ship_Warehouse_Nbr) %>% 
+#   summarise(freq = round(100 * n_distinct(Sales_Order_Nbr) / n_distinct(qvc_data$Sales_Order_Nbr), 2)) %>% 
+#   arrange(-freq)
+
+qvc_dc_freq
+
+qvc_dc_freq_top_4 <- qvc_dc_freq %>% 
+  head(4)
+
+qvc_dc_freq_top_4
+
+qvc_dc_freq_top_4 %>% 
+  summarise(sum(freq))
+
+#California
+qvc_dc_freq %>%
+  filter(Source_Ship_Warehouse_Nbr == "0125")
+#Texas
+qvc_dc_freq %>%
+  filter(Source_Ship_Warehouse_Nbr == "1914")
 
 ```
 

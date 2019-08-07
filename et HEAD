@@ -1,0 +1,71 @@
+[33mcommit 2459bf0be9320f04e6f1e5f837c46e35969a6a28[m[33m ([m[1;36mHEAD -> [m[1;32mmaster[m[33m)[m
+Author: canfielder <38056064+canfielder@users.noreply.github.com>
+Date:   Tue Aug 6 20:53:19 2019 -0400
+
+    Update
+
+[33mcommit c909ffcf7492f786a38bef2c5c8a377ef447bb4f[m
+Author: canfielder <38056064+canfielder@users.noreply.github.com>
+Date:   Sun Aug 4 08:14:58 2019 -0400
+
+    General Updates
+
+[33mcommit b8a2d4acc35eed0ebf30a93791fffb590323e7d2[m[33m ([m[1;31morigin/master[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: canfielder <38056064+canfielder@users.noreply.github.com>
+Date:   Thu Aug 1 15:54:58 2019 -0500
+
+    Updates to the Final Report
+
+[33mcommit e76023dd6ed7ed7b259f39e2731ddd48cc93bbbf[m
+Author: canfielder <38056064+canfielder@users.noreply.github.com>
+Date:   Wed Jul 31 09:55:03 2019 -0500
+
+    Created zip code distance database
+
+[33mcommit 542546e8cbc23a77ff953efaa0fd2de8cfb0254c[m
+Author: canfielder <38056064+canfielder@users.noreply.github.com>
+Date:   Wed Jul 31 08:25:55 2019 -0400
+
+    File Path update
+
+[33mcommit eff8e76f4edf5cfe3e0e52dc4156f1c082f43480[m
+Author: canfielder <38056064+canfielder@users.noreply.github.com>
+Date:   Wed Jul 31 07:25:32 2019 -0400
+
+    Update file path changes in R markdown
+
+[33mcommit 0e484eb2429d1af24e17634f1f6aac29d830cb3d[m
+Author: canfielder <38056064+canfielder@users.noreply.github.com>
+Date:   Wed Jul 31 07:21:31 2019 -0400
+
+    Gitignore update
+
+[33mcommit 3b4ab2221740b3d89a2643a7342a61116153a2a3[m
+Author: canfielder <38056064+canfielder@users.noreply.github.com>
+Date:   Tue Jul 30 09:35:13 2019 -0500
+
+    README Update
+
+[33mcommit afe62dfce4ddd739a49be019562a8371b5f20762[m
+Author: canfielder <38056064+canfielder@users.noreply.github.com>
+Date:   Tue Jul 30 09:16:11 2019 -0500
+
+    Update to README image
+
+[33mcommit 1296e143fc382805d71fb7a2e776ea114c096235[m
+Author: canfielder <38056064+canfielder@users.noreply.github.com>
+Date:   Tue Jul 30 09:14:05 2019 -0500
+
+    This repository has been reconstituted. The folders has been restructured for better order. The gitignore has been updated to prevent the upload of the large input and outut data files.
+
+[33mcommit 70d28fa5e3d92bcebf54df342dc617f68108f6ed[m
+Author: canfielder <38056064+canfielder@users.noreply.github.com>
+Date:   Tue Jul 30 09:10:59 2019 -0500
+
+    This github repository has been reconstituted. This commit will upload the README file and will act as a test.
+
+[33mcommit e5007eb8f3ebce20a86e392af341a0bd5e0b55c6[m
+Author: Evan Canfield <38056064+canfielder@users.noreply.github.com>
+Date:   Tue Jul 30 08:11:20 2019 -0500
+
+    Initial commit

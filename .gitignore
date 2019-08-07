@@ -6,7 +6,13 @@
 # Folders
 _R/data_R/
 _Tableau/data_Tableau/
-_R/report_data_processing_cache/
+_R_q1_output_files
+**/*_cache
 
 # Files
+_R/q1_output.html
 README.html
+.RDataTmp
+
+# File type
+*.htm

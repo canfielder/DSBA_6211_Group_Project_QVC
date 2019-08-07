@@ -18,13 +18,15 @@ library(pacman)
 p_load(  
   arules,
   arulesViz,
+  caTools,
   geosphere,
   lubridate,
   noncensus,
   randomForest,
   readxl,
+  ROSE,
+  ROCR,
   tidycensus,
-  tidyverse,
   stringr
 )
 ```
@@ -39,11 +41,14 @@ citation()
   package_loaded <- 
   c("arules",
   "arulesViz",
+  "caTools",
   "geosphere",
   "lubridate",
   "noncensus",
   "randomForest",
   "readxl",
+  "ROSE",
+  "ROCR",
   "tidycensus",
   "tidyverse",
   "stringr")

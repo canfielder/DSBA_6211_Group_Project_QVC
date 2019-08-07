@@ -24,17 +24,21 @@ library(pacman)
 p_load(  
   arules,
   arulesViz,
+  caTools,
   dplyr,
   tidyr,
   geosphere,
   lubridate,
   noncensus,
+  purrr,
+  randomForest,
   readxl,
+  ROSE,
+  ROCR,
   tidycensus,
   stringr
 )
 ```
-
 
 ## Data Import
 
@@ -493,6 +497,120 @@ rules.qvc.pruned <- rules.qvc[-redundant]
 ## Question 3
 *Do customers that receive their product sooner purchase more than customers with longer delivery times?*
 
+# Model idea
+''' group by party id
+label customers as repeat or not repeat
+group by party id and take the min of the order date - representing their first order
+train a model on this, using the repeat labels as a target'''
+
 ```{r}
+glimpse(qvc_data)
+```
+
+# Upload Data
+```{r}
+q3_model <- qvc_data
+```
+
+# Sort by Date
+```{r}
+q3_model$Order_Dt <- as.Date(q3_model$Order_Dt)
+```
+
+Create a Data Frame of initial orders
+```{r}
+q3_orders_init <- q3_model %>%
+  group_by(Party_Id) %>%
+  slice(which.min(Order_Dt))
+```
+
+# Create Repeat Customer Dataset
+```{r}
+qvc_customer_repeat <- qvc_data %>%
+  distinct() %>% 
+  select(Party_Id, Sales_Order_Nbr) %>% 
+  group_by(Party_Id) %>%
+  count() %>% 
+  mutate(Repeat = if_else(n > 1, 1, 0)) %>% 
+  select(-n)
+```
+
+Creat Data Frame of repeat customers. Join Repeat customer dataframe to init sales
+```{r}
+q3_model_df <- q3_orders_init %>%
+  inner_join(qvc_customer_repeat)
+```
+
+# Logistic Regression
+```{r}
+# #Mean / Median
+# mean(qvc_data$Fulfillment_Days)
+# 
+# median(qvc_data$Fulfillment_Days)
+# 
+# # Create New Variable
+# x <- 8
+# 
+# q3_model_df
+# 
+# q3_model_df_log <- q3_model_df %>% 
+#   mutate(Late = if_else(Fulfillment_Days >= x, 1, 0))
+# 
+# glimpse(q3_model_df_log)
+```
+
+
+# Random Forest
+Convert character to factor
+
+```{r}
+model_df_trim <- q3_model_df %>%
+  ungroup() %>% 
+  select(-c(Shipped_Dt, Order_Dt, Delivery_Confirmation_Dt, Sales_Order_Nbr,Party_Id, Package_Id,
+            Product_Id, Source_Ship_Warehouse_Nbr, zip_dest, city_distctr, 
+            city_dest, zip_distctr, fips_dest, lat_distctr, lon_distctr))
+
+model_df_trim <- model_df_trim %>% 
+  mutate(Line_Status_Cd = factor(Line_Status_Cd),
+         state_distctr = factor(state_distctr),
+         state_dest = factor(state_dest)
+  )
+```
+
+# Subset
+```{r}
+sample = sample.split(model_df_trim$Repeat, SplitRatio = .70)
+df.train = subset(model_df_trim, sample == TRUE)
+df.test = subset(model_df_trim, sample == FALSE)
+```
+
+#Random Forest Analysis
+```{r}
+rf <- randomForest(as.factor(Repeat)~., data=df.train, importance=TRUE, ntree=1000, do.trace = 50)
+
+varImpPlot(rf)
+
+
+mtry <- tuneRF(df.train[-15], as.factor(df.train$Repeat), ntreeTry=1000,
+               stepFactor=0.5, improve=0.01, trace=TRUE, plot=TRUE, do.trace = TRUE)
+
+best.m <- mtry[mtry[, 2] == min(mtry[, 2]), 1]
+
+
+rf_tuned <- randomForest(as.factor(Repeat)~., data=df.train, mtry=best.m,
+                   importance=TRUE, ntree=1000, do.trace = 50)
+
+varImpPlot(rf_tuned)
+# 
+# 
+# pred = predict(rf_tuned, df.test)
+# print(table(pred, df.test$Repeat))
+# 
+# roc.curve(df.test$Repeat, pred, plotit = TRUE,add =TRUE)
+# 
+# 
+# perf <- performance(pred, "tpr", "fpr")
+# plot(perf)
+# abline(a=0,b=1)
 ```
 
